@@ -15,6 +15,17 @@ public class TopicConfiguration {
                 .build();
     }
 
+    /**
+     * Dead-letter topic for institutions that failed to process
+     * i.e. when unable to find department/faculty/profile
+     */
+    @Bean
+    public NewTopic institutionsDLT() {
+        return TopicBuilder
+                .name("institutions.DLT")
+                .build();
+    }
+
     @Bean
     public NewTopic profilesTopic() {
         return TopicBuilder

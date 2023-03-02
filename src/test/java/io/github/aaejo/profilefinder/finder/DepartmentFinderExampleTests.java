@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
  */
 public class DepartmentFinderExampleTests {
 
-    private final DepartmentFinder departmentFinder = new DepartmentFinder();
+    private final DepartmentFinder departmentFinder = new DepartmentFinder(null);
 
     @Test
     void foundDepartmentSite_queensPhilosophy_isDepartmentSite() throws IOException {

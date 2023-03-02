@@ -2,6 +2,7 @@ package io.github.aaejo.profilefinder.messaging.consumer;
 
 import java.io.IOException;
 
+import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.kafka.annotation.KafkaHandler;
@@ -22,28 +23,30 @@ public class InstitutionsListener {
     private final DepartmentFinder departmentFinder;
     private final FacultyFinder facultyFinder;
     private final ProfileFinder profileFinder;
+    private final Connection session;
 
-    public InstitutionsListener(DepartmentFinder departmentFinder, FacultyFinder facultyFinder, ProfileFinder profileFinder) {
+    public InstitutionsListener(DepartmentFinder departmentFinder, FacultyFinder facultyFinder,
+            ProfileFinder profileFinder, Connection session) {
         this.departmentFinder = departmentFinder;
         this.facultyFinder = facultyFinder;
         this.profileFinder = profileFinder;
+        this.session = session;
     }
 
     @KafkaHandler
     public void handle(Institution institution) {
-        log.info("Processing {}", institution.name());
+        log.info("Processing {} ({})", institution.name(), institution.country());
         log.debug(institution.toString());
 
         // TODO: Retries
         Document page;
         try {
-            page = Jsoup.connect(institution.website()).get();
+            page = session.newRequest().url(institution.website()).get();
         } catch (IOException e) {
             log.error("Failed to load site for {}", institution.name(), e);
             return;
         }
 
-        // Maybe just move these checks (and the document loading?) into the find methods?
         if (facultyFinder.foundFacultyList(page) < 1) { // Some institutions may already have the faculty page identified
             if (departmentFinder.foundDepartmentSite(page) < 1) { // Some institutions may already have the department page identified
                 // Find department site

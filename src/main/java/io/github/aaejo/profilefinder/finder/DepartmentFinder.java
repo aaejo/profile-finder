@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.net.URI;
 
 import org.apache.commons.lang3.StringUtils;
-import org.jsoup.Jsoup;
+import org.jsoup.Connection;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
@@ -28,14 +28,18 @@ public class DepartmentFinder {
             "https://%s/humanities/philosophy",
     };
 
+    private final Connection session;
+
+    public DepartmentFinder(Connection session) {
+        this.session = session;
+    }
+
     public double foundDepartmentSite(final Document page) {
         double confidence = 0;
         if (page == null) {
             log.info("Negative confidence that department site found at null page");
             return -10;
         }
-
-        String location = page.location();
 
         try {
             int statusCode = page.connection().response().statusCode();
@@ -49,6 +53,7 @@ public class DepartmentFinder {
             log.debug("Cannot get connection response before request has been executed. This should only occur during tests.");
         }
 
+        String location = page.location();
         String title = page.title();
 
         if (StringUtils.containsIgnoreCase(title, DEPARTMENT_NAME)) {
@@ -58,9 +63,9 @@ public class DepartmentFinder {
                 return 1;
             } else if (StringUtils.containsIgnoreCase(title, "Degree")) {
                 log.debug(
-                        "Page title contains \"{}\" and \"Degree\". Low confidence added, may have found degree info page instead",
+                        "Page title contains \"{}\" and \"Degree\". Confidence reduced, likely found degree info page instead",
                         DEPARTMENT_NAME);
-                confidence += 0.2;
+                confidence -= 1;
             } else {
                 log.debug("Page title contains \"{}\" but no other keywords. Medium confidence added", DEPARTMENT_NAME);
                 confidence += 0.5;
@@ -93,7 +98,7 @@ public class DepartmentFinder {
             }
             /*
              * NOTES:
-             * - This one might need to be made weaker
+             * - This one might need to be made to have less significant impact
              * - Should probably refine for better text comparison. Like combining
              *    "department" with philosophy
              * - For this one it's probably more dangerous to scale for number of results
@@ -142,7 +147,7 @@ public class DepartmentFinder {
 
         for (String template : COMMON_TEMPLATES) {
             try {
-                page = Jsoup.connect(String.format(template, hostname)).get();
+                page = session.newRequest().url(String.format(template, hostname)).get();
             } catch (IOException e) {
                 log.error("", e);
             }
