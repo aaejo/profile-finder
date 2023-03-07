@@ -1,9 +1,9 @@
 package io.github.aaejo.profilefinder.messaging.consumer;
 
 import java.io.IOException;
+import java.util.Locale;
 
 import org.jsoup.Connection;
-import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -47,6 +47,13 @@ public class InstitutionsListener {
             return;
         }
 
+        Locale siteLocale = Locale.forLanguageTag(page.attr("lang"));
+        if (!siteLocale.getLanguage().equals(Locale.ENGLISH.getLanguage())) {
+            log.error("Unable to process non-English websites. {} site's language is {}", institution.name(),
+                    siteLocale.getDisplayLanguage());
+            return; // Or throw? But if we throw we shouldn't retry
+        }
+
         if (facultyFinder.foundFacultyList(page) < 1) { // Some institutions may already have the faculty page identified
             if (departmentFinder.foundDepartmentSite(page) < 1) { // Some institutions may already have the department page identified
                 // Find department site
@@ -61,5 +68,5 @@ public class InstitutionsListener {
         // Find profiles from faculty list
         profileFinder.findProfiles(institution, page);
     }
-    
+
 }
