@@ -12,6 +12,8 @@ public class FinderConfiguration {
     public Connection session() {
         // Any client settings that should apply to all Jsoup connections
         // can be applied here
-        return Jsoup.newSession();
+        return Jsoup
+                .newSession()
+                .ignoreHttpErrors(true); // We want to be able to inspect HTTP errors ourselves
     }
 }
