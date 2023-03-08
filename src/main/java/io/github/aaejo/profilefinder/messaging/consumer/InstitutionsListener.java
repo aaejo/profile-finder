@@ -13,6 +13,7 @@ import io.github.aaejo.messaging.records.Institution;
 import io.github.aaejo.profilefinder.finder.DepartmentFinder;
 import io.github.aaejo.profilefinder.finder.FacultyFinder;
 import io.github.aaejo.profilefinder.finder.ProfileFinder;
+import io.github.aaejo.profilefinder.finder.exception.InstitutionLocaleInvalidException;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -51,7 +52,7 @@ public class InstitutionsListener {
         if (!siteLocale.getLanguage().equals(Locale.ENGLISH.getLanguage())) {
             log.error("Unable to process non-English websites. {} site's language is {}", institution.name(),
                     siteLocale.getDisplayLanguage());
-            return; // Or throw? But if we throw we shouldn't retry
+            throw new InstitutionLocaleInvalidException(institution, siteLocale);
         }
 
         if (facultyFinder.foundFacultyList(page) < 1) { // Some institutions may already have the faculty page identified
