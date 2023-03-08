@@ -1,11 +1,11 @@
 package io.github.aaejo.profilefinder.finder;
 
 import java.io.IOException;
+import java.util.HashSet;
 
 import org.apache.commons.lang3.StringUtils;
 import org.jsoup.Connection;
 import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 
@@ -37,12 +37,10 @@ public class FacultyFinder {
                 return 0;
             }
         } catch (IllegalArgumentException e) {
-            // Protective case when trying to get response details before request has
-            // actually been made.
+            // Protective case when trying to get response details before request has actually been made.
             // This is effectively only relevant when running from unit tests.
-            log.debug(
-                "Cannot get connection response before request has been executed. This should only occur during tests.");
-            }
+            log.debug("Cannot get connection response before request has been executed. This should only occur during tests.");
+        }
 
         String location = page.location();
         String title = page.title();
@@ -55,16 +53,25 @@ public class FacultyFinder {
     }
 
     public Document findFacultyList(Institution institution, Document inPage) {
+        // TODO: This needs to be more flexible
         Elements possibleLinks = inPage.select("a[href]:contains(faculty)");
+        HashSet<String> checkedLinks = new HashSet<>(possibleLinks.size());
 
         Document candidate = inPage;
         double candidateConfidence = foundFacultyList(candidate);
 
-        for (Element link : possibleLinks) {
+        for (int i = 0; i < possibleLinks.size(); i++) {
+            String href = possibleLinks.get(i).attr("abs:href");
+
+            if (checkedLinks.contains(href)) {
+                continue; // Skip if this is a URL that has already been checked
+            }
+
             Document page = null;
             try {
-                page = session.newRequest().url(link.attr("abs:href")).get();
+                page = session.newRequest().url(href).get();
             } catch (IOException e) {
+                // TODO: Descriptive error message and better handling
                 log.error("", e);
             }
 
@@ -76,6 +83,8 @@ public class FacultyFinder {
                 candidate = page;
             }
 
+            checkedLinks.add(href);
+            // TODO: This needs to be more flexible
             Elements additionalLinks = page.select("a[href]:contains(faculty)");
             possibleLinks.addAll(additionalLinks);
         }
