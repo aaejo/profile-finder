@@ -1,15 +1,14 @@
 package io.github.aaejo.profilefinder.finder;
 
-import java.io.IOException;
 import java.util.HashSet;
 
 import org.apache.commons.lang3.StringUtils;
-import org.jsoup.Connection;
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 
 import io.github.aaejo.messaging.records.Institution;
+import io.github.aaejo.finder.client.FinderClient;
 import io.github.aaejo.profilefinder.finder.exception.FacultyListNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 
@@ -17,10 +16,10 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class FacultyFinder {
 
-    private final Connection session;
+    private final FinderClient client;
 
-    public FacultyFinder(Connection session) {
-        this.session = session;
+    public FacultyFinder(FinderClient client) {
+        this.client = client;
     }
 
     public double foundFacultyList(Document page) {
@@ -67,13 +66,7 @@ public class FacultyFinder {
                 continue; // Skip if this is a URL that has already been checked
             }
 
-            Document page = null;
-            try {
-                page = session.newRequest().url(href).get();
-            } catch (IOException e) {
-                // TODO: Descriptive error message and better handling
-                log.error("", e);
-            }
+            Document page = client.get(href);
 
             double confidence = foundFacultyList(page);
             if (confidence >= 1) {

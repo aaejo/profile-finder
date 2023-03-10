@@ -1,16 +1,16 @@
 package io.github.aaejo.profilefinder.finder;
 
-import java.io.IOException;
 import java.net.URI;
 
 import org.apache.commons.lang3.StringUtils;
-import org.jsoup.Connection;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 
 import io.github.aaejo.messaging.records.Institution;
+import io.github.aaejo.profilefinder.finder.exception.DepartmentSiteNotFoundException;
+import io.github.aaejo.finder.client.FinderClient;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -28,10 +28,10 @@ public class DepartmentFinder {
             "https://%s/humanities/philosophy",
     };
 
-    private final Connection session;
+    private final FinderClient client;
 
-    public DepartmentFinder(Connection session) {
-        this.session = session;
+    public DepartmentFinder(FinderClient client) {
+        this.client = client;
     }
 
     public double foundDepartmentSite(final Document page) {
@@ -146,11 +146,7 @@ public class DepartmentFinder {
         double candidateConfidence = foundDepartmentSite(candidate);
 
         for (String template : COMMON_TEMPLATES) {
-            try {
-                page = session.newRequest().url(String.format(template, hostname)).get();
-            } catch (IOException e) {
-                log.error("", e);
-            }
+            page = client.get(String.format(template, hostname));
 
             double confidence = foundDepartmentSite(page);
             if (confidence >= 1) {
@@ -162,8 +158,12 @@ public class DepartmentFinder {
         }
 
         // 2. Actual crawling I guess?
-        page = inPage;
+        // TODO
 
-        return page;
+        if (candidateConfidence < 1) {
+            throw new DepartmentSiteNotFoundException(institution, candidate.location(), candidateConfidence);
+        }
+
+        return candidate;
     }
 }
