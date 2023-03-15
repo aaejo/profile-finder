@@ -53,13 +53,15 @@ public class InstitutionsListener {
             throw new InstitutionLocaleInvalidException(institution, siteLocale);
         }
 
-        if (facultyFinder.foundFacultyList(page) < 1) { // Some institutions may already have the faculty page identified
-            if (departmentFinder.foundDepartmentSite(page) < 1) { // Some institutions may already have the department page identified
+        double foundFacultyList = facultyFinder.foundFacultyList(page);
+        if (foundFacultyList < 1) { // Some institutions may already have the faculty page identified
+            double foundDepartmentSite = departmentFinder.foundDepartmentSite(page);
+            if (foundDepartmentSite < 1) { // Some institutions may already have the department page identified
                 // Find department site
-                page = departmentFinder.findDepartmentSite(institution, page);
+                page = departmentFinder.findDepartmentSite(institution, page, foundFacultyList);
             }
             // Find faculty list
-            page = facultyFinder.findFacultyList(institution, page);
+            page = facultyFinder.findFacultyList(institution, page, foundFacultyList);
         }
 
         // Maybe try to find more accurate department mailing address in here somewhere?

@@ -138,15 +138,19 @@ public class DepartmentFinder {
     }
 
     public Document findDepartmentSite(Institution institution, Document inPage) {
+        double confidence = foundDepartmentSite(inPage);
+        return findDepartmentSite(institution, inPage, confidence);
+    }
+
+    public Document findDepartmentSite(Institution institution, Document inPage, double initialConfidence) {
         String hostname = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
 
         // 1. Try some basics
-        Document page = null;
         Document candidate = inPage;
-        double candidateConfidence = foundDepartmentSite(candidate);
+        double candidateConfidence = initialConfidence;
 
         for (String template : COMMON_TEMPLATES) {
-            page = client.get(String.format(template, hostname));
+            Document page = client.get(String.format(template, hostname));
 
             double confidence = foundDepartmentSite(page);
             if (confidence >= 1) {

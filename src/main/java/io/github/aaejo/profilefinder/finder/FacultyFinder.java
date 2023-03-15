@@ -52,12 +52,18 @@ public class FacultyFinder {
     }
 
     public Document findFacultyList(Institution institution, Document inPage) {
-        // TODO: This needs to be more flexible
-        Elements possibleLinks = inPage.select("a[href]:contains(faculty)");
+        double confidence = foundFacultyList(inPage);
+        return findFacultyList(institution, inPage, confidence);
+    }
+
+    public Document findFacultyList(Institution institution, Document inPage, double initialConfidence) {
+        String possibleLinkSelector = "a[href]:contains(faculty)"; // TODO: This needs to be more flexible
+
+        Elements possibleLinks = inPage.select(possibleLinkSelector);
         HashSet<String> checkedLinks = new HashSet<>(possibleLinks.size());
 
         Document candidate = inPage;
-        double candidateConfidence = foundFacultyList(candidate);
+        double candidateConfidence = initialConfidence;
 
         for (int i = 0; i < possibleLinks.size(); i++) {
             String href = possibleLinks.get(i).attr("abs:href");
@@ -77,8 +83,7 @@ public class FacultyFinder {
             }
 
             checkedLinks.add(href);
-            // TODO: This needs to be more flexible
-            Elements additionalLinks = page.select("a[href]:contains(faculty)");
+            Elements additionalLinks = page.select(possibleLinkSelector);
             possibleLinks.addAll(additionalLinks);
         }
 
