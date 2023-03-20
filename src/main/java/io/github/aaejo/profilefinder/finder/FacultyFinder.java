@@ -7,8 +7,8 @@ import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 
-import io.github.aaejo.messaging.records.Institution;
 import io.github.aaejo.finder.client.FinderClient;
+import io.github.aaejo.messaging.records.Institution;
 import io.github.aaejo.profilefinder.finder.exception.FacultyListNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 
@@ -44,9 +44,13 @@ public class FacultyFinder {
         String location = page.location();
         String title = page.title();
 
-        if (StringUtils.containsAnyIgnoreCase(title, "faculty", "staff", "employee", "directory", "people", "instructors")) {
+        // FIXME: "Faculty" is sometimes synonymous with "department" rather than staff, need to figure out how to handle this
+        if (StringUtils.containsAnyIgnoreCase(title, "faculty", "staff", "employee", "directory", "people", "instructors")
+                || StringUtils.containsAnyIgnoreCase(location, "faculty", "staff", "employee", "directory", "people", "instructors")) {
             return 1;
         }
+
+        // TODO: Check for lists. Check for tables. Check for many images? Do some stuff with headers.
 
         return confidence;
     }
@@ -57,40 +61,49 @@ public class FacultyFinder {
     }
 
     public Document findFacultyList(Institution institution, Document inPage, double initialConfidence) {
-        String possibleLinkSelector = "a[href]:contains(faculty)"; // TODO: This needs to be more flexible
+        // TODO: Expand list, but also try them one at a time and maybe not as a single query
+        //  this would let us handle them by decreasing priority
+        // faculty, staff, people...
+        String possibleLinkSelector = "a[href]:contains(staff), a[href]:contains(people)";
 
         Elements possibleLinks = inPage.select(possibleLinkSelector);
         HashSet<String> checkedLinks = new HashSet<>(possibleLinks.size());
 
         Document candidate = inPage;
         double candidateConfidence = initialConfidence;
+        checkedLinks.add(inPage.location());
 
         for (int i = 0; i < possibleLinks.size(); i++) {
-            String href = possibleLinks.get(i).attr("abs:href");
+            String href = possibleLinks.get(i).absUrl("href");
 
             if (checkedLinks.contains(href)) {
+                log.info("Skipping checked link {}", href); // TODO: make debug later
                 continue; // Skip if this is a URL that has already been checked
             }
 
             Document page = client.get(href);
 
             double confidence = foundFacultyList(page);
-            if (confidence >= 1) {
-                return page;
-            } else if (confidence > candidateConfidence) {
+            if (confidence > candidateConfidence) {
                 candidateConfidence = confidence;
                 candidate = page;
             }
 
             checkedLinks.add(href);
-            Elements additionalLinks = page.select(possibleLinkSelector);
-            possibleLinks.addAll(additionalLinks);
+
+            if (page != null) {
+                Elements additionalLinks = page.select(possibleLinkSelector);
+                possibleLinks.addAll(additionalLinks);
+            }
         }
 
         if (candidateConfidence < 1) {
             throw new FacultyListNotFoundException(institution, candidate.location(), candidateConfidence);
         }
 
-        return inPage;
+        return candidate;
     }
+
+    // TODO: Add a (static) inner class with string cssQueries pre-made into Evaluators to save constant re-parsing
+    //          by using org.jsoup.select.QueryParser.parse()
 }
