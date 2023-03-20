@@ -77,6 +77,9 @@ public class InstitutionsListener {
 
         // Find profiles from faculty list
         profileFinder.findProfiles(institution, page);
+
+        log.info("{} (likely) profiles found for {}", profileFinder.getFoundProfilesCount(institution.name()),
+                institution.name());
     }
 
 }
