@@ -2,6 +2,7 @@ package io.github.aaejo.profilefinder.finder;
 
 import java.net.URI;
 import java.util.HashSet;
+import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
 import org.jsoup.nodes.Document;
@@ -19,15 +20,14 @@ import lombok.extern.slf4j.Slf4j;
 public class DepartmentFinder {
 
     public static final String DEPARTMENT_NAME = "Philosophy";
-    private static final String[] COMMON_TEMPLATES = {
+    private static final List<String> COMMON_TEMPLATES = List.of(
             "https://%s/philosophy",
             "https://philosophy.%s",
             "https://phil.%s",
             "https://%s/department/philosophy",
             "https://%s/dept/philosophy",
             "https://%s/artsci/philosophy",
-            "https://%s/humanities/philosophy",
-    };
+            "https://%s/humanities/philosophy");
 
     private final FinderClient client;
 
