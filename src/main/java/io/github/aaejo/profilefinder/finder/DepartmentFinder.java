@@ -1,6 +1,7 @@
 package io.github.aaejo.profilefinder.finder;
 
 import java.net.URI;
+import java.util.HashSet;
 
 import org.apache.commons.lang3.StringUtils;
 import org.jsoup.nodes.Document;
@@ -8,9 +9,9 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 
+import io.github.aaejo.finder.client.FinderClient;
 import io.github.aaejo.messaging.records.Institution;
 import io.github.aaejo.profilefinder.finder.exception.DepartmentSiteNotFoundException;
-import io.github.aaejo.finder.client.FinderClient;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -57,8 +58,8 @@ public class DepartmentFinder {
         String title = page.title();
 
         if (StringUtils.containsIgnoreCase(title, DEPARTMENT_NAME)) {
-            if (StringUtils.containsIgnoreCase(title, "Department")) {
-                log.debug("Page title contains \"{}\" and \"Department\". Very high confidence", DEPARTMENT_NAME);
+            if (StringUtils.containsAnyIgnoreCase(title, "Department", "School")) {
+                log.debug("Page title contains \"{}\" and either \"Department\" or \"School\". Very high confidence", DEPARTMENT_NAME);
                 log.info("Full confidence of finding department site at {}", location);
                 return 1;
             } else if (StringUtils.containsIgnoreCase(title, "Degree")) {
@@ -150,7 +151,8 @@ public class DepartmentFinder {
         double candidateConfidence = initialConfidence;
 
         for (String template : COMMON_TEMPLATES) {
-            Document page = client.get(String.format(template, hostname));
+            String templatedUrl = String.format(template, hostname);
+            Document page = client.get(templatedUrl);
 
             double confidence = foundDepartmentSite(page);
             if (confidence >= 1) {
@@ -163,6 +165,51 @@ public class DepartmentFinder {
 
         // 2. Actual crawling I guess?
         // TODO
+        // (*1) NOTE: currently starting from inPage again but maybe should go from highest confidence page found from step 1?
+
+        // Explicitly reset candidate and confidence (*1)
+        candidate = inPage;
+        candidateConfidence = initialConfidence;
+
+        // 2.1 Specialized crawling
+
+        // TODO: Expand list, but also try them one at a time and maybe not as a single query
+        //  this would let us handle them by decreasing priority (might be affected by *1)
+        //  but how would that work at deeper levels?
+        String possibleLinkSelector = "a[href]:contains(" + DEPARTMENT_NAME + "), "
+                                    + "a[href]:contains(humanities), "
+                                    + "a[href]:contains(arts and sciences)";
+
+        Elements possibleLinks = inPage.select(possibleLinkSelector); // (*1)
+        HashSet<String> checkedLinks = new HashSet<>(possibleLinks.size()); // Should this be a map of links : confidences?
+                                                                            // Make this Linked* if we need to iterate it at some point
+        checkedLinks.add(inPage.location());
+
+        for (int i = 0; i < possibleLinks.size(); i++) {
+            String href = possibleLinks.get(i).absUrl("href");
+
+            if (checkedLinks.contains(href)) {
+                log.info("Skipping checked link {}", href); // TODO: make debug later
+                continue; // Skip if this is a URL that has already been checked
+            }
+
+            Document page = client.get(href);
+
+            double confidence = foundDepartmentSite(page);
+            if (confidence >= 1) {
+                return page;
+            } else if (confidence > candidateConfidence) {
+                candidateConfidence = confidence;
+                candidate = page;
+            }
+
+            checkedLinks.add(href);
+            Elements additionalLinks = page.select(possibleLinkSelector);
+            possibleLinks.addAll(additionalLinks);
+        }
+
+        // 2.2 Just crawl every link possible maybe? (maintaining checkedLinks)
+        // Also, sitemaps exist
 
         if (candidateConfidence < 1) {
             throw new DepartmentSiteNotFoundException(institution, candidate.location(), candidateConfidence);
@@ -170,4 +217,7 @@ public class DepartmentFinder {
 
         return candidate;
     }
+
+    // TODO: Add a (static) inner class with string cssQueries pre-made into Evaluators to save constant re-parsing
+    //          by using org.jsoup.select.QueryParser.parse()
 }
