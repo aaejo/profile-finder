@@ -8,6 +8,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.jsoup.select.Evaluator;
+import org.jsoup.select.QueryParser;
 import org.springframework.stereotype.Service;
 
 import io.github.aaejo.finder.client.FinderClient;
@@ -17,22 +19,21 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
-public class DepartmentFinder {
+public class DepartmentFinder extends BaseFinder {
 
     public static final String DEPARTMENT_NAME = "Philosophy";
     private static final List<String> COMMON_TEMPLATES = List.of(
             "https://%s/philosophy",
             "https://philosophy.%s",
-            "https://phil.%s",
             "https://%s/department/philosophy",
             "https://%s/dept/philosophy",
             "https://%s/artsci/philosophy",
-            "https://%s/humanities/philosophy");
-
-    private final FinderClient client;
+            "https://%s/humanities/philosophy",
+            "https://phil.%s"
+        );
 
     public DepartmentFinder(FinderClient client) {
-        this.client = client;
+        super(client);
     }
 
     public double foundDepartmentSite(final Document page) {
@@ -75,9 +76,9 @@ public class DepartmentFinder {
 
         // Images (w/ alt text) relating to philosophy that links back to same page (ie
         // likely logos)
-        Elements relevantImageLinks = page.select("a[href] img[alt*=" + DEPARTMENT_NAME + "]");
+        Elements relevantImageLinks = page.select(Evaluators.RELEVANT_IMAGE_LINK);
         for (Element imgLink : relevantImageLinks) {
-            if (imgLink.parent().attr("abs:href").equals(location)) {
+            if (imgLink.parent().absUrl("href").equals(location)) {
                 log.debug("Found relevant image linking back to same page. High confidence added");
                 confidence += 0.8;
             }
@@ -91,9 +92,9 @@ public class DepartmentFinder {
         }
 
         // Relevantly titled text link that leads back to same page
-        Elements relevantLinks = page.select("a[href]:contains(" + DEPARTMENT_NAME + ")");
+        Elements relevantLinks = page.select(Evaluators.RELEVANT_LINK);
         for (Element link : relevantLinks) {
-            if (link.attr("abs:href").equals(location)) {
+            if (link.absUrl("href").equals(location)) {
                 log.debug("Found relevant link back to same page. High confidence added");
                 confidence += 0.8;
             }
@@ -108,13 +109,7 @@ public class DepartmentFinder {
         }
 
         // Relevant heading element, scaled by heading size
-        Elements relevantHeadings = page
-                .select("h1:contains(" + DEPARTMENT_NAME + "), "
-                        + "h2:contains(" + DEPARTMENT_NAME + "), "
-                        + "h3:contains(" + DEPARTMENT_NAME + "), "
-                        + "h4:contains(" + DEPARTMENT_NAME + "), "
-                        + "h5:contains(" + DEPARTMENT_NAME + "), "
-                        + "h6:contains(" + DEPARTMENT_NAME + ") ");
+        Elements relevantHeadings = page.select(Evaluators.RELEVANT_HEADING);
         for (Element heading : relevantHeadings) {
             double modifier = switch (heading.tagName()) {
                 case "h1" -> 0.85;
@@ -163,6 +158,14 @@ public class DepartmentFinder {
             }
         }
 
+        // HashSet<String> flatSiteMap = client.getSiteMapURLs(inPage.location());
+        // List<String> filteredSiteMap = flatSiteMap.stream()
+        //         .filter(url -> StringUtils.contains(url, DEPARTMENT_NAME)).toList();
+
+        // for (String url : filteredSiteMap) {
+            
+        // }
+
         // 2. Actual crawling I guess?
         // TODO
         // (*1) NOTE: currently starting from inPage again but maybe should go from highest confidence page found from step 1?
@@ -184,6 +187,8 @@ public class DepartmentFinder {
         HashSet<String> checkedLinks = new HashSet<>(possibleLinks.size()); // Should this be a map of links : confidences?
                                                                             // Make this Linked* if we need to iterate it at some point
         checkedLinks.add(inPage.location());
+
+        // TODO: Need to make sure crawling doesn't leave the site as much as possible.
 
         for (int i = 0; i < possibleLinks.size(); i++) {
             String href = possibleLinks.get(i).absUrl("href");
@@ -220,4 +225,16 @@ public class DepartmentFinder {
 
     // TODO: Add a (static) inner class with string cssQueries pre-made into Evaluators to save constant re-parsing
     //          by using org.jsoup.select.QueryParser.parse()
+    private static class Evaluators {
+        
+        static final Evaluator RELEVANT_IMAGE_LINK = QueryParser.parse("a[href] img[alt*=" + DEPARTMENT_NAME + "]");
+        static final Evaluator RELEVANT_LINK = QueryParser.parse("a[href]:contains(" + DEPARTMENT_NAME + ")");
+        static final Evaluator RELEVANT_HEADING =
+                QueryParser.parse("h1:contains(" + DEPARTMENT_NAME + "), "
+                                + "h2:contains(" + DEPARTMENT_NAME + "), "
+                                + "h3:contains(" + DEPARTMENT_NAME + "), "
+                                + "h4:contains(" + DEPARTMENT_NAME + "), "
+                                + "h5:contains(" + DEPARTMENT_NAME + "), "
+                                + "h6:contains(" + DEPARTMENT_NAME + ") ");
+    }
 }

@@ -19,15 +19,14 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
-public class ProfileFinder {
+public class ProfileFinder extends BaseFinder {
 
     private final ProfilesProducer profilesProducer;
-    private final FinderClient client;
     private final ObjectIntHashMap<String> stats;
 
     public ProfileFinder(ProfilesProducer profilesProducer, FinderClient client) {
+        super(client);
         this.profilesProducer = profilesProducer;
-        this.client = client;
 
         this.stats = ObjectIntHashMap.newMap();
     }
@@ -64,7 +63,7 @@ public class ProfileFinder {
                     log.debug("Skipping element without text content: {}", element);
                     continue;
                 }
-                Element link = element.selectFirst("a:not([href^=mailto:])");
+                Element link = element.selectFirst("a[href]:not([href^=mailto:]):not([href^=tel])");
                 String url = link != null ? link.absUrl("href") : StringUtils.EMPTY;
                 Profile profile = new Profile(element.outerHtml(), url, null, institution);
                 profilesProducer.send(profile);
@@ -73,6 +72,7 @@ public class ProfileFinder {
 
             // TODO: As much as I love this solution, it fails if there are separate sections of profile details (e.g. MIT)
             // In this case it only finds the largest one. Might need to revisit this.
+            // Also fails if each entry isn't its own element (e.g. ubishops)
 
             // FIXME: This feels hacky
             Element nextPageControl = content.selectFirst("a[href]:contains(next)");
@@ -92,46 +92,5 @@ public class ProfileFinder {
 
     public int getFoundProfilesCount(Institution institution) {
         return stats.get(institution.name());
-    }
-
-    private Element drillDownToContent(Document page) {
-        // Attempt to drill down to main content using
-        // main tag - main
-        // a tag with id including "main", no children (then get parent of the a tag) -
-        // a[id*=/main/]:empty
-        // div with id including "main" - div[id*=/main/]
-        // div with aria role "main" - div[role=main]
-        // other?
-
-        Element skipAnchor = page.selectFirst("a[id=main-content]:empty");
-        Element mainContentBySkipAnchor = skipAnchor != null ? skipAnchor.parent() : null;
-        if (mainContentBySkipAnchor != null) {
-            log.debug("Found main content of {} by using skip anchor", page.location());
-            return mainContentBySkipAnchor;
-        }
-
-        Element mainContentByMainTag = page.selectFirst("main");
-        if (mainContentByMainTag != null) {
-            log.debug("Found main content of {} by HTML main tag", page.location());
-            return mainContentByMainTag;
-        }
-
-        Element mainContentByAriaRole = page.selectFirst("*[role=main]");
-        if (mainContentByAriaRole != null) {
-            log.debug("Found main content of {} by main ARIA role", page.location());
-            return mainContentByAriaRole;
-        }
-
-        // // FIXME: This doesn't really work
-        // Elements mainContentByDivId = page.select("div[id^=main]");
-        // if (!mainContentByDivId.isEmpty()) {
-        // return mainContentByDivId
-        // .stream()
-        // .min((e1, e2) -> e1.parents().contains(e2) ? -1 : (e2.parents().contains(e1)
-        // ? 1 : 0))
-        // .get();
-        // }
-
-        return page.body();
     }
 }

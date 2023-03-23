@@ -1,10 +1,14 @@
 package io.github.aaejo.profilefinder.finder;
 
+import java.util.Arrays;
 import java.util.HashSet;
 
 import org.apache.commons.lang3.StringUtils;
 import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.jsoup.select.Evaluator;
+import org.jsoup.select.QueryParser;
 import org.springframework.stereotype.Service;
 
 import io.github.aaejo.finder.client.FinderClient;
@@ -14,26 +18,24 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
-public class FacultyFinder {
-
-    private final FinderClient client;
+public class FacultyFinder extends BaseFinder {
 
     public FacultyFinder(FinderClient client) {
-        this.client = client;
+        super(client);
     }
 
-    public double foundFacultyList(Document page) {
+    public double foundFacultyList(final Document page) {
         double confidence = 0;
         if (page == null) {
             log.info("0 confidence that faculty list found at null page");
-            return 0;
+            return -10;
         }
 
         try {
             int statusCode = page.connection().response().statusCode();
             if (statusCode >= 400) {
                 log.info("0 confidence that faculty list found given HTTP {} status", statusCode);
-                return 0;
+                return -10;
             }
         } catch (IllegalArgumentException e) {
             // Protective case when trying to get response details before request has actually been made.
@@ -44,14 +46,35 @@ public class FacultyFinder {
         String location = page.location();
         String title = page.title();
 
-        // FIXME: "Faculty" is sometimes synonymous with "department" rather than staff, need to figure out how to handle this
-        if (StringUtils.containsAnyIgnoreCase(title, "faculty", "staff", "employee", "directory", "people", "instructors")
-                || StringUtils.containsAnyIgnoreCase(location, "faculty", "staff", "employee", "directory", "people", "instructors")) {
-            return 1;
+        HashSet<String> tokenizedIdentifiers = new HashSet<>();
+        tokenizedIdentifiers.addAll(Arrays.asList(location.split("/|\\.")));
+        tokenizedIdentifiers.addAll(Arrays.asList(title.split(" ")));
+        for (String token : tokenizedIdentifiers) {
+            // NOTE: May need to adjust weights here.
+            double modifier = switch (token.toLowerCase()) {
+                case "professors"           -> 0.8;
+                case "instructors"          -> 0.7;
+                case "people", "persons"    -> 0.6;
+                case "faculty"              -> 0.5;
+                case "staff"                -> 0.5;
+                case "employee"             -> 0.4;
+                case "directory"            -> 0.4;
+                default -> 0.0;
+            };
+
+            confidence += modifier;
         }
 
-        // TODO: Check for lists. Check for tables. Check for many images? Do some stuff with headers.
+        Element content = drillDownToContent(page);
 
+        confidence += 0.02 * StringUtils.countMatches(content.wholeText().toLowerCase(), "professor");
+
+        // TODO: Check for lists. Check for tables. Check for many images? Do some stuff with headers.
+        Elements unorderedLists = content.getElementsByTag("ul");
+        Elements orderedLists = content.getElementsByTag("ol");
+        Elements tables = content.getElementsByTag("table");
+
+        log.info("{} confidence of finding faculty list at {} ", confidence, location);
         return confidence;
     }
 
@@ -61,17 +84,15 @@ public class FacultyFinder {
     }
 
     public Document findFacultyList(Institution institution, Document inPage, double initialConfidence) {
-        // TODO: Expand list, but also try them one at a time and maybe not as a single query
-        //  this would let us handle them by decreasing priority
-        // faculty, staff, people...
-        String possibleLinkSelector = "a[href]:contains(staff), a[href]:contains(people)";
 
-        Elements possibleLinks = inPage.select(possibleLinkSelector);
+        Elements possibleLinks = inPage.select(Evaluators.POSSIBLE_LINK);
         HashSet<String> checkedLinks = new HashSet<>(possibleLinks.size());
 
         Document candidate = inPage;
         double candidateConfidence = initialConfidence;
         checkedLinks.add(inPage.location());
+
+        // TODO: Need to make sure crawling doesn't leave the site as much as possible.
 
         for (int i = 0; i < possibleLinks.size(); i++) {
             String href = possibleLinks.get(i).absUrl("href");
@@ -92,7 +113,7 @@ public class FacultyFinder {
             checkedLinks.add(href);
 
             if (page != null) {
-                Elements additionalLinks = page.select(possibleLinkSelector);
+                Elements additionalLinks = page.select(Evaluators.POSSIBLE_LINK);
                 possibleLinks.addAll(additionalLinks);
             }
         }
@@ -104,6 +125,11 @@ public class FacultyFinder {
         return candidate;
     }
 
-    // TODO: Add a (static) inner class with string cssQueries pre-made into Evaluators to save constant re-parsing
-    //          by using org.jsoup.select.QueryParser.parse()
+    private static class Evaluators {
+        // TODO: Expand list, but also try them one at a time and maybe not as a single query
+        //  this would let us handle them by decreasing priority
+        // faculty, staff, people...
+        static final Evaluator POSSIBLE_LINK =
+                QueryParser.parse("a[href]:contains(staff), a[href]:contains(people)");
+    }
 }
