@@ -37,28 +37,10 @@ public class ProfileFinder extends BaseFinder {
         boolean hasNextPage = false;
 
         do {
-            Elements contentElements = content.getAllElements();
-            Map<Element, Elements> parentToChildren = new HashMap<>(contentElements.size());
+            Elements commonTagChildren = commonTagStrategy(content);
 
-            for (Element element : contentElements) {
-                parentToChildren.put(element, element.children());
-            }
-
-            Entry<Element, Elements> mostChildrenEntry = parentToChildren.entrySet().stream()
-                    .max((o1, o2) -> Integer.compare(o1.getValue().size(), o2.getValue().size())).get();
-
-            ObjectIntHashMap<String> tagFrequency = ObjectIntHashMap.newMap();
-            for (Element element : mostChildrenEntry.getValue()) {
-                tagFrequency.addToValue(element.tagName(), 1);
-            }
-
-            String commonTag = tagFrequency.keyValuesView()
-                    .max((tag1, tag2) -> Integer.compare(tag1.getTwo(), tag2.getTwo())).getOne();
-
-            Elements commonTagChildren = new Elements(mostChildrenEntry.getValue());
-            commonTagChildren.removeIf(e -> !e.tagName().equals(commonTag));
-
-            for (Element element : commonTagChildren) {
+            Elements facultyListElements = commonTagChildren;
+            for (Element element : facultyListElements) {
                 if (StringUtils.isEmpty(element.text())){
                     log.debug("Skipping element without text content: {}", element);
                     continue;
@@ -84,6 +66,30 @@ public class ProfileFinder extends BaseFinder {
                 hasNextPage = false;
             }
         } while (hasNextPage);
+    }
+
+    private Elements commonTagStrategy(Element content) {
+        Elements contentElements = content.getAllElements();
+        Map<Element, Elements> parentToChildren = new HashMap<>(contentElements.size());
+
+        for (Element element : contentElements) {
+            parentToChildren.put(element, element.children());
+        }
+
+        Entry<Element, Elements> mostChildrenEntry = parentToChildren.entrySet().stream()
+                .max((o1, o2) -> Integer.compare(o1.getValue().size(), o2.getValue().size())).get();
+
+        ObjectIntHashMap<String> tagFrequency = ObjectIntHashMap.newMap();
+        for (Element element : mostChildrenEntry.getValue()) {
+            tagFrequency.addToValue(element.tagName(), 1);
+        }
+
+        String commonTag = tagFrequency.keyValuesView()
+                .max((tag1, tag2) -> Integer.compare(tag1.getTwo(), tag2.getTwo())).getOne();
+
+        Elements commonTagChildren = new Elements(mostChildrenEntry.getValue());
+        commonTagChildren.removeIf(e -> !e.tagName().equals(commonTag));
+        return commonTagChildren;
     }
 
     public int getFoundProfilesCount(String institutionName) {
