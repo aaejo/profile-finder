@@ -47,7 +47,7 @@ public class FacultyFinder extends BaseFinder {
         String title = page.title();
 
         HashSet<String> tokenizedIdentifiers = new HashSet<>();
-        tokenizedIdentifiers.addAll(Arrays.asList(location.split("/|\\.")));
+        tokenizedIdentifiers.addAll(Arrays.asList(location.split("\\W")));
         tokenizedIdentifiers.addAll(Arrays.asList(title.split(" ")));
         for (String token : tokenizedIdentifiers) {
             // NOTE: May need to adjust weights here.
@@ -67,9 +67,15 @@ public class FacultyFinder extends BaseFinder {
 
         Element content = drillDownToContent(page);
 
-        confidence += 0.02 * StringUtils.countMatches(content.wholeText().toLowerCase(), "professor");
+        confidence += 0.03 * StringUtils.countMatches(content.text().toLowerCase(), "professor");
+        confidence += 0.02 * StringUtils.countMatches(content.text().toLowerCase(), "lecturer");
+        confidence += 0.01 * StringUtils.countMatches(content.text().toLowerCase(), "prof.");
 
-        // TODO: Check for lists. Check for tables. Check for many images? Do some stuff with headers.
+        Elements mailLinks = content.select("a[href^=mailto:]");
+        confidence += 0.05 * mailLinks.size();
+        Elements telLinks = content.select("a[href^=tel:]");
+        confidence += 0.03 * telLinks.size();
+
         Elements unorderedLists = content.getElementsByTag("ul");
         Elements orderedLists = content.getElementsByTag("ol");
         Elements tables = content.getElementsByTag("table");
