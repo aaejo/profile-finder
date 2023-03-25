@@ -5,6 +5,9 @@ import java.util.HashSet;
 import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
+import org.eclipse.collections.api.factory.primitive.ObjectDoubleMaps;
+import org.eclipse.collections.api.map.primitive.ImmutableObjectDoubleMap;
+import org.eclipse.collections.api.tuple.primitive.ObjectDoublePair;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
@@ -31,6 +34,13 @@ public class DepartmentFinder extends BaseFinder {
             "https://%s/humanities/philosophy",
             "https://phil.%s"
         );
+    private static ImmutableObjectDoubleMap<String> VALID_DEPARTMENT_WEIGHTS = ObjectDoubleMaps.mutable.<String>empty()
+        .withKeyValue("philosophy",     1.0)
+        .withKeyValue("humanities",     0.8)
+        .withKeyValue("social science", 0.8)
+        .withKeyValue("social-science", 0.8)
+        .withKeyValue("socialscience",  0.8)
+        .toImmutable();
 
     public DepartmentFinder(FinderClient client) {
         super(client);
@@ -51,8 +61,8 @@ public class DepartmentFinder extends BaseFinder {
             }
         } catch (IllegalArgumentException e) {
             // Protective case when trying to get response details before request has actually been made.
-            // This is effectively only relevant when running from unit tests.
-            log.debug("Cannot get connection response before request has been executed. This should only occur during tests.");
+            // This is relevant when running from tests or using the Selenium FinderClient strategy.
+            log.debug("Cannot get connection response when Jsoup was not used to make the request.");
         }
 
         String location = page.location();
@@ -140,6 +150,8 @@ public class DepartmentFinder extends BaseFinder {
 
     public Document findDepartmentSite(Institution institution, Document inPage, double initialConfidence) {
         String hostname = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
+        CrawlQueue checkedLinks = new CrawlQueue();
+        checkedLinks.add(inPage.location(), initialConfidence);
 
         // 1. Try some basics
         Document candidate = inPage;
@@ -150,6 +162,9 @@ public class DepartmentFinder extends BaseFinder {
             Document page = client.get(templatedUrl);
 
             double confidence = foundDepartmentSite(page);
+
+            checkedLinks.add(templatedUrl, confidence);
+
             if (confidence >= 1) {
                 return page;
             } else if (confidence > candidateConfidence) {
@@ -158,13 +173,32 @@ public class DepartmentFinder extends BaseFinder {
             }
         }
 
-        // HashSet<String> flatSiteMap = client.getSiteMapURLs(inPage.location());
-        // List<String> filteredSiteMap = flatSiteMap.stream()
-        //         .filter(url -> StringUtils.contains(url, DEPARTMENT_NAME)).toList();
+        HashSet<String> flatSiteMap = client.getSiteMapURLs(inPage.location());
+        CrawlQueue crawlQueue = new CrawlQueue();
 
-        // for (String url : filteredSiteMap) {
-            
-        // }
+        for (String url : flatSiteMap) {
+            for (ObjectDoublePair<String> deptPat : VALID_DEPARTMENT_WEIGHTS.keyValuesView()) {
+                if (StringUtils.containsIgnoreCase(url, deptPat.getOne())) {
+                    crawlQueue.add(new CrawlTarget(url, deptPat.getTwo()));
+                    break; // Break after adding so we don't bother trying to add the same url multiple times
+                           // e.g. when we have multiple matches on the same url
+                }
+            }
+        }
+
+        for (CrawlTarget target : crawlQueue) {
+            Document page = client.get(target.url());
+
+            double confidence = foundDepartmentSite(page);
+
+            checkedLinks.add(page.location(), confidence);
+            if (confidence >= 1) {
+                return page;
+            } else if (confidence > candidateConfidence) {
+                candidateConfidence = confidence;
+                candidate = page;
+            }
+        }
 
         // 2. Actual crawling I guess?
         // TODO
@@ -184,21 +218,19 @@ public class DepartmentFinder extends BaseFinder {
                                     + "a[href]:contains(arts and sciences)";
 
         Elements possibleLinks = inPage.select(possibleLinkSelector); // (*1)
-        HashSet<String> checkedLinks = new HashSet<>(possibleLinks.size()); // Should this be a map of links : confidences?
-                                                                            // Make this Linked* if we need to iterate it at some point
-        checkedLinks.add(inPage.location());
+        CrawlQueue crawlQueue2 = new CrawlQueue(possibleLinks.size());
+        crawlQueue2.addAll(possibleLinks, 1.0);
 
         // TODO: Need to make sure crawling doesn't leave the site as much as possible.
 
-        for (int i = 0; i < possibleLinks.size(); i++) {
-            String href = possibleLinks.get(i).absUrl("href");
-
-            if (checkedLinks.contains(href)) {
-                log.info("Skipping checked link {}", href); // TODO: make debug later
+        CrawlTarget target;
+        while ((target = crawlQueue2.poll()) != null) {
+            if (checkedLinks.contains(target)) {
+                log.info("Skipping checked link {}", target.url()); // TODO: make debug later
                 continue; // Skip if this is a URL that has already been checked
             }
 
-            Document page = client.get(href);
+            Document page = client.get(target.url());
 
             double confidence = foundDepartmentSite(page);
             if (confidence >= 1) {
@@ -208,9 +240,9 @@ public class DepartmentFinder extends BaseFinder {
                 candidate = page;
             }
 
-            checkedLinks.add(href);
+            checkedLinks.add(target.url(), confidence);
             Elements additionalLinks = page.select(possibleLinkSelector);
-            possibleLinks.addAll(additionalLinks);
+            crawlQueue2.addAll(additionalLinks, 1.0);
         }
 
         // 2.2 Just crawl every link possible maybe? (maintaining checkedLinks)
@@ -223,10 +255,8 @@ public class DepartmentFinder extends BaseFinder {
         return candidate;
     }
 
-    // TODO: Add a (static) inner class with string cssQueries pre-made into Evaluators to save constant re-parsing
-    //          by using org.jsoup.select.QueryParser.parse()
     private static class Evaluators {
-        
+
         static final Evaluator RELEVANT_IMAGE_LINK = QueryParser.parse("a[href] img[alt*=" + DEPARTMENT_NAME + "]");
         static final Evaluator RELEVANT_LINK = QueryParser.parse("a[href]:contains(" + DEPARTMENT_NAME + ")");
         static final Evaluator RELEVANT_HEADING =

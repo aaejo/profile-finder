@@ -37,6 +37,22 @@ public class ProfileFinder extends BaseFinder {
         boolean hasNextPage = false;
 
         do {
+            // Should check whether this is a department-specific list or a general one
+            // If it's a general one, need to take special precautions
+
+            // Look for tables
+            // Look for lists
+            // Look for separators
+
+            Elements unorderedLists = content.getElementsByTag("ul");
+
+            for (Element ul : unorderedLists) {
+                StringUtils.containsAny(ul.id(), "staff", "faculty", "instructors");
+            }
+
+            Elements orderedLists = content.getElementsByTag("ol");
+            Elements tables = content.getElementsByTag("table");
+
             Elements commonTagChildren = commonTagStrategy(content);
 
             Elements facultyListElements = commonTagChildren;

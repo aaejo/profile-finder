@@ -136,6 +136,7 @@ public class FacultyFinder extends BaseFinder {
         //  this would let us handle them by decreasing priority
         // faculty, staff, people...
         static final Evaluator POSSIBLE_LINK =
-                QueryParser.parse("a[href]:contains(staff), a[href]:contains(people)");
+                QueryParser.parse("a[href]:contains(faculty):not(:contains(faculty of)), "
+                        +"a[href]:contains(staff), a[href]:contains(people)");
     }
 }
