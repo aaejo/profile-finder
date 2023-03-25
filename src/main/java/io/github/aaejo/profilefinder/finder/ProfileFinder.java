@@ -86,13 +86,14 @@ public class ProfileFinder extends BaseFinder {
 
     private Elements commonTagStrategy(Element content) {
         Elements contentElements = content.getAllElements();
-        Map<Element, Elements> parentToChildren = new HashMap<>(contentElements.size());
+        Map<Element, Elements> parentToBlockChildren = new HashMap<>(contentElements.size());
 
         for (Element element : contentElements) {
-            parentToChildren.put(element, element.children());
+            Elements blockLevelChildren = new Elements(element.children().stream().filter(c -> c.tag().isBlock()).toList());
+            parentToBlockChildren.put(element, blockLevelChildren);
         }
 
-        Entry<Element, Elements> mostChildrenEntry = parentToChildren.entrySet().stream()
+        Entry<Element, Elements> mostChildrenEntry = parentToBlockChildren.entrySet().stream()
                 .max((o1, o2) -> Integer.compare(o1.getValue().size(), o2.getValue().size())).get();
 
         ObjectIntHashMap<String> tagFrequency = ObjectIntHashMap.newMap();
