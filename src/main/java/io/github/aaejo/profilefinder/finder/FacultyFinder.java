@@ -90,45 +90,41 @@ public class FacultyFinder extends BaseFinder {
     }
 
     public Document findFacultyList(Institution institution, Document inPage, double initialConfidence) {
-
-        Elements possibleLinks = inPage.select(Evaluators.POSSIBLE_LINK);
-        HashSet<String> checkedLinks = new HashSet<>(possibleLinks.size());
+        CrawlQueue checkedLinks = new CrawlQueue();
+        CrawlQueue crawlQueue = new CrawlQueue();
+        crawlQueue.addAll(inPage.select(Evaluators.POSSIBLE_LINK), initialConfidence);
 
         Document candidate = inPage;
         double candidateConfidence = initialConfidence;
-        checkedLinks.add(inPage.location());
+        checkedLinks.add(inPage.location(), initialConfidence);
 
         // TODO: Need to make sure crawling doesn't leave the site as much as possible.
 
-        for (int i = 0; i < possibleLinks.size(); i++) {
-            String href = possibleLinks.get(i).absUrl("href");
-
-            if (checkedLinks.contains(href)) {
-                log.info("Skipping checked link {}", href); // TODO: make debug later
+        CrawlTarget target;
+        while ((target = crawlQueue.poll()) != null) {
+            if (checkedLinks.contains(target)) {
+                log.info("Skipping checked link {}", target.url()); // TODO: make debug later
                 continue; // Skip if this is a URL that has already been checked
             }
 
-            Document page = client.get(href);
+            Document page = client.get(target.url());
 
             double confidence = foundFacultyList(page);
-            if (confidence > candidateConfidence) {
-                candidateConfidence = confidence;
-                candidate = page;
-            }
-
-            checkedLinks.add(href);
+            checkedLinks.add(target.url(), confidence);
 
             if (page != null) {
                 Elements additionalLinks = page.select(Evaluators.POSSIBLE_LINK);
-                possibleLinks.addAll(additionalLinks);
+                crawlQueue.addAll(additionalLinks, confidence);
             }
         }
 
-        if (candidateConfidence < 1) {
+        CrawlTarget best = checkedLinks.peek();
+
+        if (best.weight() < 1) {
             throw new FacultyListNotFoundException(institution, candidate.location(), candidateConfidence);
         }
 
-        return candidate;
+        return client.get(best.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
     }
 
     private static class Evaluators {
