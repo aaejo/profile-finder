@@ -95,8 +95,6 @@ public class FacultyFinder extends BaseFinder {
         CrawlQueue crawlQueue = new CrawlQueue();
         crawlQueue.addAll(inPage.select(Evaluators.POSSIBLE_LINK), initialConfidence);
 
-        Document candidate = inPage;
-        double candidateConfidence = initialConfidence;
         checkedLinks.add(inPage.location(), initialConfidence);
 
         CrawlTarget target;
@@ -128,7 +126,7 @@ public class FacultyFinder extends BaseFinder {
         CrawlTarget best = checkedLinks.peek();
 
         if (best.weight() < 1) {
-            throw new FacultyListNotFoundException(institution, candidate.location(), candidateConfidence);
+            throw new FacultyListNotFoundException(institution, best.url(), best.weight());
         }
 
         return client.get(best.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
