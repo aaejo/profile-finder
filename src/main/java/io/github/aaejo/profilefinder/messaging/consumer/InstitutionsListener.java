@@ -13,6 +13,7 @@ import io.github.aaejo.messaging.records.Institution;
 import io.github.aaejo.profilefinder.finder.DepartmentFinder;
 import io.github.aaejo.profilefinder.finder.FacultyFinder;
 import io.github.aaejo.profilefinder.finder.ProfileFinder;
+import io.github.aaejo.profilefinder.finder.exception.InitialFetchFailedException;
 import io.github.aaejo.profilefinder.finder.exception.InstitutionLocaleInvalidException;
 import lombok.extern.slf4j.Slf4j;
 
@@ -45,7 +46,7 @@ public class InstitutionsListener {
 
         if (page == null) {
             log.error("Failed to load site for {}", institution.name());
-            return;
+            throw new InitialFetchFailedException(institution);
         }
 
         Locale siteLocale = Locale.forLanguageTag(page.getElementsByTag("html").first().attr("lang"));

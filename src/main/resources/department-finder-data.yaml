@@ -1,0 +1,24 @@
+aaejo:
+  jds:
+    department-finder:
+      templates:
+        - "https://%s/philosophy"
+        - "https://philosophy.%s"
+        - "https://%s/department/philosophy"
+        - "https://%s/dept/philosophy"
+        - "https://%s/artsci/philosophy"
+        - "https://%s/humanities/philosophy"
+        - "https://phil.%s"
+      keywords:
+        - variants:
+            - "philosophy"
+          weight: 1.0
+        - variants:
+            - "humanities"
+          weight: 0.8
+        - variants:
+            - "social science"
+            - "social-science"
+            - "socialscience"
+          weight: 0.8
+

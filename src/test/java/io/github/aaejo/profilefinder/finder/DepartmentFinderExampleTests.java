@@ -4,17 +4,34 @@ import static org.assertj.core.api.Assertions.*;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.junit.jupiter.api.Test;
+
+import io.github.aaejo.profilefinder.finder.configuration.DepartmentFinderProperties;
 
 /*
  * Tests for DepartmentFinder utilizing actual static HTML
  */
 public class DepartmentFinderExampleTests {
 
-    private final DepartmentFinder departmentFinder = new DepartmentFinder(null);
+    List<String> commonTemplates = List.of(
+            "https://%s/philosophy",
+            "https://philosophy.%s",
+            "https://%s/department/philosophy",
+            "https://%s/dept/philosophy",
+            "https://%s/artsci/philosophy",
+            "https://%s/humanities/philosophy",
+            "https://phil.%s"
+        );
+    List<DepartmentKeyword> departmentKeywords = List.of(
+            new DepartmentKeyword(1.0, new String[]{"philosophy"}),
+            new DepartmentKeyword(0.8, new String[]{"humanities"}),
+            new DepartmentKeyword(0.8, new String[]{"social science", "social-science", "socialscience"}));
+    DepartmentFinderProperties properties = new DepartmentFinderProperties(commonTemplates, departmentKeywords);
+    private final DepartmentFinder departmentFinder = new DepartmentFinder(null, properties);
 
     @Test
     void foundDepartmentSite_queensPhilosophy_isDepartmentSite() throws IOException {

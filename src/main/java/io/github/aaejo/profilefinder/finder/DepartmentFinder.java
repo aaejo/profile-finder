@@ -8,12 +8,11 @@ import org.apache.commons.lang3.StringUtils;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import org.jsoup.select.Evaluator;
-import org.jsoup.select.QueryParser;
 import org.springframework.stereotype.Service;
 
 import io.github.aaejo.finder.client.FinderClient;
 import io.github.aaejo.messaging.records.Institution;
+import io.github.aaejo.profilefinder.finder.configuration.DepartmentFinderProperties;
 import io.github.aaejo.profilefinder.finder.exception.DepartmentSiteNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 
@@ -21,24 +20,13 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class DepartmentFinder extends BaseFinder {
 
-    private static final List<String> COMMON_TEMPLATES = List.of(
-            "https://%s/philosophy",
-            "https://philosophy.%s",
-            "https://%s/department/philosophy",
-            "https://%s/dept/philosophy",
-            "https://%s/artsci/philosophy",
-            "https://%s/humanities/philosophy",
-            "https://phil.%s"
-        );
+    private final List<String> commonTemplates;
     private final List<DepartmentKeyword> departmentKeywords;
 
-    public DepartmentFinder(FinderClient client) {
+    public DepartmentFinder(FinderClient client, DepartmentFinderProperties properties) {
         super(client);
-
-        departmentKeywords = List.of(
-            new DepartmentKeyword(1.0, "philosophy"),
-            new DepartmentKeyword(0.8, "humanities"),
-            new DepartmentKeyword(0.8, "social science", "social-science", "socialscience"));
+        this.commonTemplates = properties.templates();
+        this.departmentKeywords = properties.keywords();
     }
 
     public double foundDepartmentSite(final Document page) {
@@ -64,28 +52,28 @@ public class DepartmentFinder extends BaseFinder {
         String title = page.title();
 
         for (DepartmentKeyword keyword : departmentKeywords) {
-            if (StringUtils.containsAnyIgnoreCase(title, keyword.variants)) {
+            if (StringUtils.containsAnyIgnoreCase(title, keyword.getVariants())) {
                 if (StringUtils.containsAnyIgnoreCase(title, "Department", "School")) {
-                    log.debug("Page title contains \"{}\" and either \"Department\" or \"School\". Very high confidence", keyword.variants[0]);
+                    log.debug("Page title contains \"{}\" and either \"Department\" or \"School\". Very high confidence", keyword.getVariants()[0]);
                     log.info("Full confidence of finding department site at {}", location);
-                    confidence += 1 * keyword.weight;
+                    confidence += 1 * keyword.getWeight();
                 } else if (StringUtils.containsIgnoreCase(title, "Degree")) {
                     log.debug(
                             "Page title contains \"{}\" and \"Degree\". Confidence reduced, likely found degree info page instead",
-                            keyword.variants[0]);
-                    confidence -= 1 * keyword.weight;
+                            keyword.getVariants()[0]);
+                    confidence -= 1 * keyword.getWeight();
                 } else {
-                    log.debug("Page title contains \"{}\" but no other keywords. Medium confidence added", keyword.variants[0]);
-                    confidence += 0.5 * keyword.weight;
+                    log.debug("Page title contains \"{}\" but no other keywords. Medium confidence added", keyword.getVariants()[0]);
+                    confidence += 0.5 * keyword.getWeight();
                 }
             }
             
             // Images (w/ alt text) relating to philosophy that links back to same page (ie likely logos)
-            Elements relevantImageLinks = page.select(keyword.relevantImageLink);
+            Elements relevantImageLinks = page.select(keyword.getRelevantImageLink());
             for (Element imgLink : relevantImageLinks) {
                 if (imgLink.parent().absUrl("href").equals(location)) {
                     log.debug("Found relevant image linking back to same page. High confidence added");
-                    confidence += 0.8 * keyword.weight;
+                    confidence += 0.8 * keyword.getWeight();
                 }
                 /*
                 * NOTES:
@@ -97,11 +85,11 @@ public class DepartmentFinder extends BaseFinder {
             }
             
             // Relevantly titled text link that leads back to same page
-            Elements relevantLinks = page.select(keyword.relevantLink);
+            Elements relevantLinks = page.select(keyword.getRelevantLink());
             for (Element link : relevantLinks) {
                 if (link.absUrl("href").equals(location)) {
                     log.debug("Found relevant link back to same page. High confidence added");
-                    confidence += 0.8 * keyword.weight;
+                    confidence += 0.8 * keyword.getWeight();
                 }
                 /*
                  * NOTES:
@@ -114,9 +102,9 @@ public class DepartmentFinder extends BaseFinder {
             }
             
             // Relevant heading element, scaled by heading size
-            Elements relevantHeadings = page.select(keyword.relevantHeading);
+            Elements relevantHeadings = page.select(keyword.getRelevantHeading());
             for (Element heading : relevantHeadings) {
-                double modifier = keyword.weight * switch (heading.tagName()) {
+                double modifier = keyword.getWeight() * switch (heading.tagName()) {
                     case "h1" -> 0.85;
                     case "h2" -> 0.82;
                     case "h3" -> 0.8;
@@ -130,10 +118,7 @@ public class DepartmentFinder extends BaseFinder {
                 
                 // NOTE: might want to refine text matching on this one too
             }
-    }
-
-        // NOTE: Might need to handle when philosophy is paired with something else
-        // (religion, linguistics, etc.)
+        }
 
         log.info("{} confidence of finding department site at {} ", confidence, location);
         return confidence;
@@ -151,7 +136,7 @@ public class DepartmentFinder extends BaseFinder {
         // 1. Try some basics
         String hostname = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
 
-        for (String template : COMMON_TEMPLATES) {
+        for (String template : commonTemplates) {
             String templatedUrl = String.format(template, hostname);
             Document page = client.get(templatedUrl);
 
@@ -169,8 +154,8 @@ public class DepartmentFinder extends BaseFinder {
 
         for (String url : flatSiteMap) {
             for (DepartmentKeyword keyword : departmentKeywords) {
-                if (StringUtils.containsAnyIgnoreCase(url, keyword.variants)) {
-                    crawlQueue.add(new CrawlTarget(url, keyword.weight));
+                if (StringUtils.containsAnyIgnoreCase(url, keyword.getVariants())) {
+                    crawlQueue.add(new CrawlTarget(url, keyword.getWeight()));
                     break; // Break after adding so we don't bother trying to add the same url multiple times
                            // e.g. when we have multiple matches on the same url
                 }
@@ -196,8 +181,8 @@ public class DepartmentFinder extends BaseFinder {
         // 2.1 Specialized crawling
 
         for (DepartmentKeyword keyword : departmentKeywords) {
-            Elements possibleLinks = inPage.select(keyword.relevantLink); // (*1)
-            crawlQueue.addAll(possibleLinks, keyword.weight);
+            Elements possibleLinks = inPage.select(keyword.getRelevantLink()); // (*1)
+            crawlQueue.addAll(possibleLinks, keyword.getWeight());
         }
 
         // TODO: Need to make sure crawling doesn't leave the site as much as possible.
@@ -214,8 +199,8 @@ public class DepartmentFinder extends BaseFinder {
             double confidence = foundDepartmentSite(page);
             checkedLinks.add(target.url(), confidence);
             for (DepartmentKeyword keyword : departmentKeywords) {
-                Elements possibleLinks = page.select(keyword.relevantLink);
-                crawlQueue.addAll(possibleLinks, keyword.weight);
+                Elements possibleLinks = page.select(keyword.getRelevantLink());
+                crawlQueue.addAll(possibleLinks, confidence * keyword.getWeight());
             }
         }
 
@@ -228,42 +213,5 @@ public class DepartmentFinder extends BaseFinder {
         }
 
         return client.get(best.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
-    }
-
-    private class DepartmentKeyword {
-        String[] variants;
-        double weight;
-        Evaluator relevantImageLink;
-        Evaluator relevantLink;
-        Evaluator relevantHeading;
-
-        public DepartmentKeyword(double weight, String... variants) {
-            this.variants = variants;
-            this.weight = weight;
-
-            String relevantImageLinkQuery = "a[href] img[alt*=" + variants[0] + "]";
-            String relevantLinkQuery = "a[href]:contains(" + variants[0] + ")";
-            String relevantHeadingQuery = "h1:contains(" + variants[0] + "), "
-                                        + "h2:contains(" + variants[0] + "), "
-                                        + "h3:contains(" + variants[0] + "), "
-                                        + "h4:contains(" + variants[0] + "), "
-                                        + "h5:contains(" + variants[0] + "), "
-                                        + "h6:contains(" + variants[0] + ") ";
-            if (variants.length > 1) {
-                for (int i = 1; i < variants.length; i++) {
-                    relevantImageLinkQuery += ", a[href] img[alt*=" + variants[i] + "]";
-                    relevantLinkQuery += ", a[href]:contains(" + variants[i] + ")";
-                    relevantHeadingQuery += ", h1:contains(" + variants[i] + "), "
-                                            + "h2:contains(" + variants[i] + "), "
-                                            + "h3:contains(" + variants[i] + "), "
-                                            + "h4:contains(" + variants[i] + "), "
-                                            + "h5:contains(" + variants[i] + "), "
-                                            + "h6:contains(" + variants[i] + ") ";
-                }
-            }
-            this.relevantImageLink = QueryParser.parse(relevantImageLinkQuery);
-            this.relevantLink = QueryParser.parse(relevantLinkQuery);
-            this.relevantHeading = QueryParser.parse(relevantHeadingQuery);
-        }
     }
 }

@@ -2,6 +2,7 @@ package io.github.aaejo.profilefinder.finder.configuration;
 
 import org.jsoup.Connection;
 import org.jsoup.Jsoup;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.retry.support.RetryTemplate;
@@ -9,6 +10,7 @@ import org.springframework.retry.support.RetryTemplate;
 import io.github.aaejo.finder.client.FinderClient;
 
 @Configuration
+@EnableConfigurationProperties(DepartmentFinderProperties.class)
 public class FinderConfiguration {
 
     @Bean
