@@ -5,9 +5,6 @@ import java.util.HashSet;
 import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
-import org.eclipse.collections.api.factory.primitive.ObjectDoubleMaps;
-import org.eclipse.collections.api.map.primitive.ImmutableObjectDoubleMap;
-import org.eclipse.collections.api.tuple.primitive.ObjectDoublePair;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
@@ -24,7 +21,6 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class DepartmentFinder extends BaseFinder {
 
-    public static final String DEPARTMENT_NAME = "Philosophy";
     private static final List<String> COMMON_TEMPLATES = List.of(
             "https://%s/philosophy",
             "https://philosophy.%s",
@@ -34,16 +30,15 @@ public class DepartmentFinder extends BaseFinder {
             "https://%s/humanities/philosophy",
             "https://phil.%s"
         );
-    private static ImmutableObjectDoubleMap<String> VALID_DEPARTMENT_WEIGHTS = ObjectDoubleMaps.mutable.<String>empty()
-        .withKeyValue("philosophy",     1.0)
-        .withKeyValue("humanities",     0.8)
-        .withKeyValue("social science", 0.8)
-        .withKeyValue("social-science", 0.8)
-        .withKeyValue("socialscience",  0.8)
-        .toImmutable();
+    private final List<DepartmentKeyword> departmentKeywords;
 
     public DepartmentFinder(FinderClient client) {
         super(client);
+
+        departmentKeywords = List.of(
+            new DepartmentKeyword(1.0, "philosophy"),
+            new DepartmentKeyword(0.8, "humanities"),
+            new DepartmentKeyword(0.8, "social science", "social-science", "socialscience"));
     }
 
     public double foundDepartmentSite(final Document page) {
@@ -68,73 +63,74 @@ public class DepartmentFinder extends BaseFinder {
         String location = page.location();
         String title = page.title();
 
-        if (StringUtils.containsIgnoreCase(title, DEPARTMENT_NAME)) {
-            if (StringUtils.containsAnyIgnoreCase(title, "Department", "School")) {
-                log.debug("Page title contains \"{}\" and either \"Department\" or \"School\". Very high confidence", DEPARTMENT_NAME);
-                log.info("Full confidence of finding department site at {}", location);
-                return 1;
-            } else if (StringUtils.containsIgnoreCase(title, "Degree")) {
-                log.debug(
-                        "Page title contains \"{}\" and \"Degree\". Confidence reduced, likely found degree info page instead",
-                        DEPARTMENT_NAME);
-                confidence -= 1;
-            } else {
-                log.debug("Page title contains \"{}\" but no other keywords. Medium confidence added", DEPARTMENT_NAME);
-                confidence += 0.5;
+        for (DepartmentKeyword keyword : departmentKeywords) {
+            if (StringUtils.containsAnyIgnoreCase(title, keyword.variants)) {
+                if (StringUtils.containsAnyIgnoreCase(title, "Department", "School")) {
+                    log.debug("Page title contains \"{}\" and either \"Department\" or \"School\". Very high confidence", keyword.variants[0]);
+                    log.info("Full confidence of finding department site at {}", location);
+                    confidence += 1 * keyword.weight;
+                } else if (StringUtils.containsIgnoreCase(title, "Degree")) {
+                    log.debug(
+                            "Page title contains \"{}\" and \"Degree\". Confidence reduced, likely found degree info page instead",
+                            keyword.variants[0]);
+                    confidence -= 1 * keyword.weight;
+                } else {
+                    log.debug("Page title contains \"{}\" but no other keywords. Medium confidence added", keyword.variants[0]);
+                    confidence += 0.5 * keyword.weight;
+                }
             }
-        }
-
-        // Images (w/ alt text) relating to philosophy that links back to same page (ie
-        // likely logos)
-        Elements relevantImageLinks = page.select(Evaluators.RELEVANT_IMAGE_LINK);
-        for (Element imgLink : relevantImageLinks) {
-            if (imgLink.parent().absUrl("href").equals(location)) {
-                log.debug("Found relevant image linking back to same page. High confidence added");
-                confidence += 0.8;
+            
+            // Images (w/ alt text) relating to philosophy that links back to same page (ie likely logos)
+            Elements relevantImageLinks = page.select(keyword.relevantImageLink);
+            for (Element imgLink : relevantImageLinks) {
+                if (imgLink.parent().absUrl("href").equals(location)) {
+                    log.debug("Found relevant image linking back to same page. High confidence added");
+                    confidence += 0.8 * keyword.weight;
+                }
+                /*
+                * NOTES:
+                * - Case for a relevant image not linking back, which removes confidence?
+                * - What about relevant non-link images?
+                * - Should confidences scale based on number of results?
+                */
+                
             }
-            /*
-             * NOTES:
-             * - Case for a relevant image not linking back, which removes confidence?
-             * - What about relevant non-link images?
-             * - Should confidences scale based on number of results?
-             */
-
-        }
-
-        // Relevantly titled text link that leads back to same page
-        Elements relevantLinks = page.select(Evaluators.RELEVANT_LINK);
-        for (Element link : relevantLinks) {
-            if (link.absUrl("href").equals(location)) {
-                log.debug("Found relevant link back to same page. High confidence added");
-                confidence += 0.8;
+            
+            // Relevantly titled text link that leads back to same page
+            Elements relevantLinks = page.select(keyword.relevantLink);
+            for (Element link : relevantLinks) {
+                if (link.absUrl("href").equals(location)) {
+                    log.debug("Found relevant link back to same page. High confidence added");
+                    confidence += 0.8 * keyword.weight;
+                }
+                /*
+                 * NOTES:
+                 * - This one might need to be made to have less significant impact
+                 * - Should probably refine for better text comparison. Like combining
+                 *    "department" with philosophy
+                 * - For this one it's probably more dangerous to scale for number of results
+                 *    and/or remove confidence for non-returning links. But it can be considered
+                 */
             }
-            /*
-             * NOTES:
-             * - This one might need to be made to have less significant impact
-             * - Should probably refine for better text comparison. Like combining
-             *    "department" with philosophy
-             * - For this one it's probably more dangerous to scale for number of results
-             *    and/or remove confidence for non-returning links. But it can be considered
-             */
-        }
-
-        // Relevant heading element, scaled by heading size
-        Elements relevantHeadings = page.select(Evaluators.RELEVANT_HEADING);
-        for (Element heading : relevantHeadings) {
-            double modifier = switch (heading.tagName()) {
-                case "h1" -> 0.85;
-                case "h2" -> 0.82;
-                case "h3" -> 0.8;
-                case "h4" -> 0.5;
-                case "h5" -> 0.3;
-                case "h6" -> 0.1;
-                default -> 0;
-            };
-            log.debug("{} confidence added based on relevant {}-level heading", modifier, heading.tagName());
-            confidence += modifier;
-
-            // NOTE: might want to refine text matching on this one too
-        }
+            
+            // Relevant heading element, scaled by heading size
+            Elements relevantHeadings = page.select(keyword.relevantHeading);
+            for (Element heading : relevantHeadings) {
+                double modifier = keyword.weight * switch (heading.tagName()) {
+                    case "h1" -> 0.85;
+                    case "h2" -> 0.82;
+                    case "h3" -> 0.8;
+                    case "h4" -> 0.5;
+                    case "h5" -> 0.3;
+                    case "h6" -> 0.1;
+                    default -> 0;
+                };
+                log.debug("{} confidence added based on relevant {}-level heading", modifier, heading.tagName());
+                confidence += modifier;
+                
+                // NOTE: might want to refine text matching on this one too
+            }
+    }
 
         // NOTE: Might need to handle when philosophy is paired with something else
         // (religion, linguistics, etc.)
@@ -149,13 +145,11 @@ public class DepartmentFinder extends BaseFinder {
     }
 
     public Document findDepartmentSite(Institution institution, Document inPage, double initialConfidence) {
-        String hostname = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
         CrawlQueue checkedLinks = new CrawlQueue();
         checkedLinks.add(inPage.location(), initialConfidence);
 
         // 1. Try some basics
-        Document candidate = inPage;
-        double candidateConfidence = initialConfidence;
+        String hostname = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
 
         for (String template : COMMON_TEMPLATES) {
             String templatedUrl = String.format(template, hostname);
@@ -167,9 +161,6 @@ public class DepartmentFinder extends BaseFinder {
 
             if (confidence >= 1) {
                 return page;
-            } else if (confidence > candidateConfidence) {
-                candidateConfidence = confidence;
-                candidate = page;
             }
         }
 
@@ -177,16 +168,17 @@ public class DepartmentFinder extends BaseFinder {
         CrawlQueue crawlQueue = new CrawlQueue();
 
         for (String url : flatSiteMap) {
-            for (ObjectDoublePair<String> deptPat : VALID_DEPARTMENT_WEIGHTS.keyValuesView()) {
-                if (StringUtils.containsIgnoreCase(url, deptPat.getOne())) {
-                    crawlQueue.add(new CrawlTarget(url, deptPat.getTwo()));
+            for (DepartmentKeyword keyword : departmentKeywords) {
+                if (StringUtils.containsAnyIgnoreCase(url, keyword.variants)) {
+                    crawlQueue.add(new CrawlTarget(url, keyword.weight));
                     break; // Break after adding so we don't bother trying to add the same url multiple times
                            // e.g. when we have multiple matches on the same url
                 }
             }
         }
 
-        for (CrawlTarget target : crawlQueue) {
+        CrawlTarget target;
+        while ((target = crawlQueue.poll()) != null) {
             Document page = client.get(target.url());
 
             double confidence = foundDepartmentSite(page);
@@ -194,9 +186,6 @@ public class DepartmentFinder extends BaseFinder {
             checkedLinks.add(page.location(), confidence);
             if (confidence >= 1) {
                 return page;
-            } else if (confidence > candidateConfidence) {
-                candidateConfidence = confidence;
-                candidate = page;
             }
         }
 
@@ -204,27 +193,17 @@ public class DepartmentFinder extends BaseFinder {
         // TODO
         // (*1) NOTE: currently starting from inPage again but maybe should go from highest confidence page found from step 1?
 
-        // Explicitly reset candidate and confidence (*1)
-        candidate = inPage;
-        candidateConfidence = initialConfidence;
-
         // 2.1 Specialized crawling
 
-        // TODO: Expand list, but also try them one at a time and maybe not as a single query
-        //  this would let us handle them by decreasing priority (might be affected by *1)
-        //  but how would that work at deeper levels?
-        String possibleLinkSelector = "a[href]:contains(" + DEPARTMENT_NAME + "), "
-                                    + "a[href]:contains(humanities), "
-                                    + "a[href]:contains(arts and sciences)";
-
-        Elements possibleLinks = inPage.select(possibleLinkSelector); // (*1)
-        CrawlQueue crawlQueue2 = new CrawlQueue(possibleLinks.size());
-        crawlQueue2.addAll(possibleLinks, 1.0);
+        for (DepartmentKeyword keyword : departmentKeywords) {
+            Elements possibleLinks = inPage.select(keyword.relevantLink); // (*1)
+            crawlQueue.addAll(possibleLinks, keyword.weight);
+        }
 
         // TODO: Need to make sure crawling doesn't leave the site as much as possible.
 
-        CrawlTarget target;
-        while ((target = crawlQueue2.poll()) != null) {
+        target = null;
+        while ((target = crawlQueue.poll()) != null) {
             if (checkedLinks.contains(target)) {
                 log.info("Skipping checked link {}", target.url()); // TODO: make debug later
                 continue; // Skip if this is a URL that has already been checked
@@ -233,38 +212,58 @@ public class DepartmentFinder extends BaseFinder {
             Document page = client.get(target.url());
 
             double confidence = foundDepartmentSite(page);
-            if (confidence >= 1) {
-                return page;
-            } else if (confidence > candidateConfidence) {
-                candidateConfidence = confidence;
-                candidate = page;
-            }
-
             checkedLinks.add(target.url(), confidence);
-            Elements additionalLinks = page.select(possibleLinkSelector);
-            crawlQueue2.addAll(additionalLinks, 1.0);
+            for (DepartmentKeyword keyword : departmentKeywords) {
+                Elements possibleLinks = page.select(keyword.relevantLink);
+                crawlQueue.addAll(possibleLinks, keyword.weight);
+            }
         }
 
         // 2.2 Just crawl every link possible maybe? (maintaining checkedLinks)
-        // Also, sitemaps exist
 
-        if (candidateConfidence < 1) {
-            throw new DepartmentSiteNotFoundException(institution, candidate.location(), candidateConfidence);
+        CrawlTarget best = checkedLinks.peek();
+
+        if (best.weight() < 1) {
+            throw new DepartmentSiteNotFoundException(institution, best.url(), best.weight());
         }
 
-        return candidate;
+        return client.get(best.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
     }
 
-    private static class Evaluators {
+    private class DepartmentKeyword {
+        String[] variants;
+        double weight;
+        Evaluator relevantImageLink;
+        Evaluator relevantLink;
+        Evaluator relevantHeading;
 
-        static final Evaluator RELEVANT_IMAGE_LINK = QueryParser.parse("a[href] img[alt*=" + DEPARTMENT_NAME + "]");
-        static final Evaluator RELEVANT_LINK = QueryParser.parse("a[href]:contains(" + DEPARTMENT_NAME + ")");
-        static final Evaluator RELEVANT_HEADING =
-                QueryParser.parse("h1:contains(" + DEPARTMENT_NAME + "), "
-                                + "h2:contains(" + DEPARTMENT_NAME + "), "
-                                + "h3:contains(" + DEPARTMENT_NAME + "), "
-                                + "h4:contains(" + DEPARTMENT_NAME + "), "
-                                + "h5:contains(" + DEPARTMENT_NAME + "), "
-                                + "h6:contains(" + DEPARTMENT_NAME + ") ");
+        public DepartmentKeyword(double weight, String... variants) {
+            this.variants = variants;
+            this.weight = weight;
+
+            String relevantImageLinkQuery = "a[href] img[alt*=" + variants[0] + "]";
+            String relevantLinkQuery = "a[href]:contains(" + variants[0] + ")";
+            String relevantHeadingQuery = "h1:contains(" + variants[0] + "), "
+                                        + "h2:contains(" + variants[0] + "), "
+                                        + "h3:contains(" + variants[0] + "), "
+                                        + "h4:contains(" + variants[0] + "), "
+                                        + "h5:contains(" + variants[0] + "), "
+                                        + "h6:contains(" + variants[0] + ") ";
+            if (variants.length > 1) {
+                for (int i = 1; i < variants.length; i++) {
+                    relevantImageLinkQuery += ", a[href] img[alt*=" + variants[i] + "]";
+                    relevantLinkQuery += ", a[href]:contains(" + variants[i] + ")";
+                    relevantHeadingQuery += ", h1:contains(" + variants[i] + "), "
+                                            + "h2:contains(" + variants[i] + "), "
+                                            + "h3:contains(" + variants[i] + "), "
+                                            + "h4:contains(" + variants[i] + "), "
+                                            + "h5:contains(" + variants[i] + "), "
+                                            + "h6:contains(" + variants[i] + ") ";
+                }
+            }
+            this.relevantImageLink = QueryParser.parse(relevantImageLinkQuery);
+            this.relevantLink = QueryParser.parse(relevantLinkQuery);
+            this.relevantHeading = QueryParser.parse(relevantHeadingQuery);
+        }
     }
 }
