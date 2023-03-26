@@ -1,5 +1,6 @@
 package io.github.aaejo.profilefinder.finder;
 
+import java.net.URI;
 import java.util.Arrays;
 import java.util.HashSet;
 
@@ -98,8 +99,6 @@ public class FacultyFinder extends BaseFinder {
         double candidateConfidence = initialConfidence;
         checkedLinks.add(inPage.location(), initialConfidence);
 
-        // TODO: Need to make sure crawling doesn't leave the site as much as possible.
-
         CrawlTarget target;
         while ((target = crawlQueue.poll()) != null) {
             if (checkedLinks.contains(target)) {
@@ -113,8 +112,16 @@ public class FacultyFinder extends BaseFinder {
             checkedLinks.add(target.url(), confidence);
 
             if (page != null) {
+                String host = StringUtils.removeStart(URI.create(page.location()).getHost(), "www.");
                 Elements additionalLinks = page.select(Evaluators.POSSIBLE_LINK);
-                crawlQueue.addAll(additionalLinks, confidence);
+                for (Element addLink : additionalLinks) {
+                    double weight = confidence;
+                    // Naive determination of if link leads to different host
+                    if (!StringUtils.contains(addLink.absUrl("href"), host)) {
+                        weight *= 0.0001; // Way reduce priority of links going to different hosts
+                    }
+                    crawlQueue.add(addLink.absUrl("href"), weight);
+                }
             }
         }
 
@@ -128,9 +135,6 @@ public class FacultyFinder extends BaseFinder {
     }
 
     private static class Evaluators {
-        // TODO: Expand list, but also try them one at a time and maybe not as a single query
-        //  this would let us handle them by decreasing priority
-        // faculty, staff, people...
         static final Evaluator POSSIBLE_LINK =
                 QueryParser.parse("a[href]:contains(faculty):not(:contains(faculty of)), "
                         +"a[href]:contains(staff), a[href]:contains(people)");

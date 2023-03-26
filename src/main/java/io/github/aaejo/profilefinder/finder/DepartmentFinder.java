@@ -185,8 +185,6 @@ public class DepartmentFinder extends BaseFinder {
             crawlQueue.addAll(possibleLinks, keyword.getWeight());
         }
 
-        // TODO: Need to make sure crawling doesn't leave the site as much as possible.
-
         target = null;
         while ((target = crawlQueue.poll()) != null) {
             if (checkedLinks.contains(target)) {
@@ -198,9 +196,20 @@ public class DepartmentFinder extends BaseFinder {
 
             double confidence = foundDepartmentSite(page);
             checkedLinks.add(target.url(), confidence);
-            for (DepartmentKeyword keyword : departmentKeywords) {
-                Elements possibleLinks = page.select(keyword.getRelevantLink());
-                crawlQueue.addAll(possibleLinks, confidence * keyword.getWeight());
+
+            if (page != null) {
+                String host = StringUtils.removeStart(URI.create(page.location()).getHost(), "www.");
+                for (DepartmentKeyword keyword : departmentKeywords) {
+                    Elements possibleLinks = page.select(keyword.getRelevantLink());
+                    for (Element addLink : possibleLinks) {
+                        double weight = confidence * keyword.getWeight();
+                        // Naive determination of if link leads to different host
+                        if (!StringUtils.contains(addLink.absUrl("href"), host)) {
+                            weight *= 0.0001; // Way reduce priority of links going to different hosts
+                        }
+                        crawlQueue.add(addLink.absUrl("href"), weight);
+                    }
+                }
             }
         }
 
