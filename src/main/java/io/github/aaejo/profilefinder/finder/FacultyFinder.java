@@ -3,6 +3,7 @@ package io.github.aaejo.profilefinder.finder;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
 import org.jsoup.nodes.Document;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import io.github.aaejo.finder.client.FinderClient;
 import io.github.aaejo.messaging.records.Institution;
+import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import io.github.aaejo.profilefinder.finder.exception.FacultyListNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 
@@ -21,8 +23,8 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class FacultyFinder extends BaseFinder {
 
-    public FacultyFinder(FinderClient client) {
-        super(client);
+    public FacultyFinder(FinderClient client, CrawlingProperties crawlingProperties) {
+        super(client, crawlingProperties);
     }
 
     public double foundFacultyList(final Document page) {
@@ -55,18 +57,19 @@ public class FacultyFinder extends BaseFinder {
             double modifier = switch (token.toLowerCase()) {
                 case "professors"           -> 0.8;
                 case "instructors"          -> 0.7;
-                case "people", "persons"    -> 0.6;
                 case "faculty"              -> 0.5;
                 case "staff"                -> 0.5;
+                case "people", "persons"    -> 0.45;
                 case "employee"             -> 0.4;
                 case "directory"            -> 0.4;
+                case "contact"              -> 0.4;
                 default -> 0.0;
             };
 
             confidence += modifier;
         }
 
-        Element content = drillDownToContent(page);
+        Element content = drillDownToUniqueMain(page).get(0);
 
         confidence += 0.03 * StringUtils.countMatches(content.text().toLowerCase(), "professor");
         confidence += 0.02 * StringUtils.countMatches(content.text().toLowerCase(), "lecturer");
@@ -93,7 +96,7 @@ public class FacultyFinder extends BaseFinder {
     public Document findFacultyList(Institution institution, Document inPage, double initialConfidence) {
         CrawlQueue checkedLinks = new CrawlQueue();
         CrawlQueue crawlQueue = new CrawlQueue();
-        crawlQueue.addAll(inPage.select(Evaluators.POSSIBLE_LINK), initialConfidence);
+        queueLinksFromPage(crawlQueue, inPage, initialConfidence);
 
         checkedLinks.add(inPage.location(), initialConfidence);
 
@@ -108,19 +111,7 @@ public class FacultyFinder extends BaseFinder {
 
             double confidence = foundFacultyList(page);
             checkedLinks.add(target.url(), confidence);
-
-            if (page != null) {
-                String host = StringUtils.removeStart(URI.create(page.location()).getHost(), "www.");
-                Elements additionalLinks = page.select(Evaluators.POSSIBLE_LINK);
-                for (Element addLink : additionalLinks) {
-                    double weight = confidence;
-                    // Naive determination of if link leads to different host
-                    if (!StringUtils.contains(addLink.absUrl("href"), host)) {
-                        weight *= 0.0001; // Way reduce priority of links going to different hosts
-                    }
-                    crawlQueue.add(addLink.absUrl("href"), weight);
-                }
-            }
+            queueLinksFromPage(crawlQueue, page, confidence);
         }
 
         CrawlTarget best = checkedLinks.peek();
@@ -130,6 +121,27 @@ public class FacultyFinder extends BaseFinder {
         }
 
         return client.get(best.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
+    }
+
+    private int queueLinksFromPage(CrawlQueue queue, Document page, double pageConfidence) {
+        if (page == null) {
+            return -1;
+        }
+
+        int count = 0;
+
+        String host = StringUtils.removeStart(URI.create(page.location()).getHost(), "www.");
+        List<Element> contentDrillDown = drillDownToContent(page);
+        for (Element level : contentDrillDown) { // Reminder: Order is deepest to shallowest "main"/"content" element
+            // Scale down weight the less drilled down we are. Crawl targets will be left with
+            // their highest found weight in the queue because of the logic in CrawlQueue.offer
+            double weight = pageConfidence
+                    * ((level.parents().size() + 1) / (contentDrillDown.get(0).parents().size() + 1));
+            Elements possibleLinks = level.select(Evaluators.POSSIBLE_LINK);
+            count += tryAddLinks(queue, host, weight, possibleLinks);
+        }
+
+        return count;
     }
 
     private static class Evaluators {

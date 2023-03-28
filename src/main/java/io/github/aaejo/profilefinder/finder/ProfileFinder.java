@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import io.github.aaejo.finder.client.FinderClient;
 import io.github.aaejo.messaging.records.Institution;
 import io.github.aaejo.messaging.records.Profile;
+import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import io.github.aaejo.profilefinder.messaging.producer.ProfilesProducer;
 import lombok.extern.slf4j.Slf4j;
 
@@ -24,8 +25,8 @@ public class ProfileFinder extends BaseFinder {
     private final ProfilesProducer profilesProducer;
     private final ObjectIntHashMap<String> stats;
 
-    public ProfileFinder(ProfilesProducer profilesProducer, FinderClient client) {
-        super(client);
+    public ProfileFinder(ProfilesProducer profilesProducer, FinderClient client, CrawlingProperties properties) {
+        super(client, properties);
         this.profilesProducer = profilesProducer;
 
         this.stats = ObjectIntHashMap.newMap();
@@ -33,11 +34,11 @@ public class ProfileFinder extends BaseFinder {
 
     public void findProfiles(Institution institution, Document facultyPage) {
         stats.put(institution.name(), 0);
-        Element content = drillDownToContent(facultyPage);
+        Element content = drillDownToUniqueMain(facultyPage).get(0);
         boolean hasNextPage = false;
 
         do {
-            // Should check whether this is a department-specific list or a general one
+            // TODO: Should check whether this is a department-specific list or a general one
             // If it's a general one, need to take special precautions
 
             // Look for tables
@@ -68,16 +69,12 @@ public class ProfileFinder extends BaseFinder {
                 stats.addToValue(institution.name(), 1);
             }
 
-            // TODO: As much as I love this solution, it fails if there are separate sections of profile details (e.g. MIT)
-            // In this case it only finds the largest one. Might need to revisit this.
-            // Also fails if each entry isn't its own element (e.g. ubishops)
-
-            // FIXME: This feels hacky
+            // FIXME: This feels hacky. It's not really, but it feels like it
             Element nextPageControl = content.selectFirst("a[href]:contains(next)");
             if (nextPageControl != null) {
                 hasNextPage = true;
                 Document nextPage = client.get(nextPageControl.absUrl("href"));
-                content = drillDownToContent(nextPage);
+                content = drillDownToUniqueMain(nextPage).get(0);
             } else {
                 hasNextPage = false;
             }
@@ -107,6 +104,10 @@ public class ProfileFinder extends BaseFinder {
         Elements commonTagChildren = new Elements(mostChildrenEntry.getValue());
         commonTagChildren.removeIf(e -> !e.tagName().equals(commonTag));
         return commonTagChildren;
+
+        // TODO: As much as I love this solution, it fails if there are separate sections of profile details (e.g. MIT)
+        // In this case it only finds the largest one. Might need to revisit this.
+        // Also fails if each entry isn't its own element (e.g. ubishops)
     }
 
     public int getFoundProfilesCount(String institutionName) {

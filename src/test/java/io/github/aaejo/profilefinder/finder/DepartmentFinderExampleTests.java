@@ -10,6 +10,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.junit.jupiter.api.Test;
 
+import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import io.github.aaejo.profilefinder.finder.configuration.DepartmentFinderProperties;
 
 /*
@@ -27,11 +28,14 @@ public class DepartmentFinderExampleTests {
             "https://phil.%s"
         );
     List<DepartmentKeyword> departmentKeywords = List.of(
-            new DepartmentKeyword(1.0, new String[]{"philosophy"}),
-            new DepartmentKeyword(0.8, new String[]{"humanities"}),
-            new DepartmentKeyword(0.8, new String[]{"social science", "social-science", "socialscience"}));
-    DepartmentFinderProperties properties = new DepartmentFinderProperties(commonTemplates, departmentKeywords);
-    private final DepartmentFinder departmentFinder = new DepartmentFinder(null, properties);
+            new DepartmentKeyword(new String[]{"philosophy"}, 1.0, true),
+            new DepartmentKeyword(new String[]{"humanities"}, 0.8, false),
+            new DepartmentKeyword(new String[]{"social science", "social-science", "socialscience"}, 0.8, false));
+    DepartmentFinderProperties dfProps = new DepartmentFinderProperties(commonTemplates, departmentKeywords);
+    
+    String[] disallowedHosts = { "outlook.com", "sharepoint.com" };
+    CrawlingProperties cProps = new CrawlingProperties(false, 0.0001, disallowedHosts);
+    private final DepartmentFinder departmentFinder = new DepartmentFinder(null, dfProps, cProps);
 
     @Test
     void foundDepartmentSite_queensPhilosophy_isDepartmentSite() throws IOException {

@@ -13,6 +13,7 @@ aaejo:
         - variants:
             - "philosophy"
           weight: 1.0
+          primary: "true"
         - variants:
             - "humanities"
           weight: 0.8
@@ -21,4 +22,9 @@ aaejo:
             - "social-science"
             - "socialscience"
           weight: 0.8
-
+        - variants:
+            - "departments"
+          weight: 0.01
+        - variants:
+            - "faculties"
+          weight: 0.01

@@ -2,17 +2,20 @@ package io.github.aaejo.profilefinder.finder;
 
 import org.jsoup.select.Evaluator;
 import org.jsoup.select.QueryParser;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 
 public class DepartmentKeyword {
     private String[] variants;
     private double weight;
+    private boolean primary;
     private Evaluator relevantImageLink;
     private Evaluator relevantLink;
     private Evaluator relevantHeading;
 
-    public DepartmentKeyword(double weight, String[] variants) {
+    public DepartmentKeyword(String[] variants, double weight, @DefaultValue("false") boolean primary) {
         this.variants = variants;
         this.weight = weight;
+        this.primary = primary;
 
         String relevantImageLinkQuery = "a[href] img[alt*=" + variants[0] + "]";
         String relevantLinkQuery = "a[href]:contains(" + variants[0] + ")";
@@ -53,6 +56,10 @@ public class DepartmentKeyword {
         return weight;
     }
 
+    public boolean isPrimary() {
+        return primary;
+    }
+
     /**
      * @return the relevantImageLink
      */
@@ -72,19 +79,5 @@ public class DepartmentKeyword {
      */
     public Evaluator getRelevantHeading() {
         return relevantHeading;
-    }
-
-    /**
-     * @param variants the variants to set
-     */
-    public void setVariants(String[] variants) {
-        this.variants = variants;
-    }
-
-    /**
-     * @param weight the weight to set
-     */
-    public void setWeight(double weight) {
-        this.weight = weight;
     }
 }

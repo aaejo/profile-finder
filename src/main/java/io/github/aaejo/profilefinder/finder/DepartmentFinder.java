@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import io.github.aaejo.finder.client.FinderClient;
 import io.github.aaejo.messaging.records.Institution;
+import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import io.github.aaejo.profilefinder.finder.configuration.DepartmentFinderProperties;
 import io.github.aaejo.profilefinder.finder.exception.DepartmentSiteNotFoundException;
 import lombok.extern.slf4j.Slf4j;
@@ -22,9 +23,10 @@ public class DepartmentFinder extends BaseFinder {
 
     private final List<String> commonTemplates;
     private final List<DepartmentKeyword> departmentKeywords;
+    // private final CrawlingProperties crawlingProperties;
 
-    public DepartmentFinder(FinderClient client, DepartmentFinderProperties properties) {
-        super(client);
+    public DepartmentFinder(FinderClient client, DepartmentFinderProperties properties, CrawlingProperties crawlingProperties) {
+        super(client, crawlingProperties);
         this.commonTemplates = properties.templates();
         this.departmentKeywords = properties.keywords();
     }
@@ -175,15 +177,12 @@ public class DepartmentFinder extends BaseFinder {
         }
 
         // 2. Actual crawling I guess?
-        // TODO
+        // TODO: Attempt to find a department listing
         // (*1) NOTE: currently starting from inPage again but maybe should go from highest confidence page found from step 1?
 
         // 2.1 Specialized crawling
 
-        for (DepartmentKeyword keyword : departmentKeywords) {
-            Elements possibleLinks = inPage.select(keyword.getRelevantLink()); // (*1)
-            crawlQueue.addAll(possibleLinks, keyword.getWeight());
-        }
+        queueLinksFromPage(crawlQueue, inPage, initialConfidence); // (*1)
 
         target = null;
         while ((target = crawlQueue.poll()) != null) {
@@ -196,21 +195,7 @@ public class DepartmentFinder extends BaseFinder {
 
             double confidence = foundDepartmentSite(page);
             checkedLinks.add(target.url(), confidence);
-
-            if (page != null) {
-                String host = StringUtils.removeStart(URI.create(page.location()).getHost(), "www.");
-                for (DepartmentKeyword keyword : departmentKeywords) {
-                    Elements possibleLinks = page.select(keyword.getRelevantLink());
-                    for (Element addLink : possibleLinks) {
-                        double weight = confidence * keyword.getWeight();
-                        // Naive determination of if link leads to different host
-                        if (!StringUtils.contains(addLink.absUrl("href"), host)) {
-                            weight *= 0.0001; // Way reduce priority of links going to different hosts
-                        }
-                        crawlQueue.add(addLink.absUrl("href"), weight);
-                    }
-                }
-            }
+            queueLinksFromPage(crawlQueue, page, confidence);
         }
 
         // 2.2 Just crawl every link possible maybe? (maintaining checkedLinks)
@@ -222,5 +207,23 @@ public class DepartmentFinder extends BaseFinder {
         }
 
         return client.get(best.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
+    }
+
+    private int queueLinksFromPage(CrawlQueue queue, Document page, double pageConfidence) {
+        if (page == null) {
+            return -1;
+        }
+
+        int count = 0;
+        String host = StringUtils.removeStart(URI.create(page.location()).getHost(), "www.");
+        for (DepartmentKeyword keyword : departmentKeywords) {
+            // Scale target's weight in queue by keyword weight and page confidence. Crawl targets will be left with
+            // their highest found weight in the queue because of the logic in CrawlQueue.offer
+            double weight = pageConfidence * keyword.getWeight();
+            Elements possibleLinks = page.select(keyword.getRelevantLink());
+            count += tryAddLinks(queue, host, weight, possibleLinks);
+        }
+
+        return count;
     }
 }
