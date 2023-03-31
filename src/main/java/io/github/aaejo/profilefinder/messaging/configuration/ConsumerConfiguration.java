@@ -10,6 +10,9 @@ import org.springframework.util.backoff.FixedBackOff;
 
 import io.github.aaejo.profilefinder.finder.exception.InstitutionLocaleInvalidException;
 
+/**
+ * @author Omri Harary
+ */
 @Configuration
 public class ConsumerConfiguration {
 

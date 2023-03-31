@@ -13,6 +13,9 @@ import io.github.aaejo.finder.client.FinderClient;
 import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * @author Omri Harary
+ */
 @Slf4j
 public abstract class BaseFinder {
 
@@ -47,16 +50,26 @@ public abstract class BaseFinder {
             drillDown.add(mainContentByAriaRole);
         }
 
-        drillDown.stream()
+        Element mainContentByIdMain = page.getElementById("main");
+        if (mainContentByIdMain != null && mainContentByIdMain.tag().isBlock()) {
+            log.debug("Found main content of {} by id = main", page.location());
+            drillDown.add(mainContentByIdMain);
+        }
+
+        Element mainContentByIdContent = page.getElementById("content");
+        if (mainContentByIdContent != null && mainContentByIdContent.tag().isBlock()) {
+            log.debug("Found main content of {} by id = content", page.location());
+            drillDown.add(mainContentByIdContent);
+        }
+
+        return drillDown.stream()
                 .distinct()
                 .sorted(Comparator.<Element>comparingInt(e -> e.parents().size()).reversed())
                 .toList();
-
-        return drillDown;
     }
 
     protected List<Element> drillDownToContent(Document page) {
-        List<Element> drillDown = drillDownToUniqueMain(page);
+        List<Element> drillDown = new ArrayList<>(drillDownToUniqueMain(page));
 
         // The three ways we've checked for main content so far are supposed to be unique, take the deepest one
         Element deepestUniqueMain = drillDown.get(0);

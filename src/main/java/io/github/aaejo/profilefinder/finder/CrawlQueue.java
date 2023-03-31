@@ -5,6 +5,9 @@ import java.util.PriorityQueue;
 
 import org.jsoup.select.Elements;
 
+/**
+ * @author Omri Harary
+ */
 public class CrawlQueue extends PriorityQueue<CrawlTarget> {
 
     /**

@@ -2,6 +2,9 @@ package io.github.aaejo.profilefinder.finder;
 
 import java.util.Comparator;
 
+/**
+ * @author Omri Harary
+ */
 public record CrawlTarget(String url, double weight) implements Comparable<CrawlTarget> {
 
     @Override

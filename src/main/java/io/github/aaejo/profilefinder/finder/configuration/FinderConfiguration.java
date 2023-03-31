@@ -9,6 +9,9 @@ import org.springframework.retry.support.RetryTemplate;
 
 import io.github.aaejo.finder.client.FinderClient;
 
+/**
+ * @author Omri Harary
+ */
 @Configuration
 @EnableConfigurationProperties({ CrawlingProperties.class, DepartmentFinderProperties.class })
 public class FinderConfiguration {

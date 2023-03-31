@@ -4,7 +4,12 @@ import org.jsoup.select.Evaluator;
 import org.jsoup.select.QueryParser;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
+/**
+ * @author Omri Harary
+ */
 public class DepartmentKeyword {
+    public static final DepartmentKeyword UNDEFINED = new DepartmentKeyword(new String[]{"undefined"}, Double.NaN, false);
+
     private String[] variants;
     private double weight;
     private boolean primary;

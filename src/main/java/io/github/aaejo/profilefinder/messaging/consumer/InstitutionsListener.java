@@ -17,6 +17,9 @@ import io.github.aaejo.profilefinder.finder.exception.InitialFetchFailedExceptio
 import io.github.aaejo.profilefinder.finder.exception.InstitutionLocaleInvalidException;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * @author Omri Harary
+ */
 @Slf4j
 @Component
 @KafkaListener(id = "profile-finder", topics = "institutions")

@@ -6,6 +6,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import io.github.aaejo.profilefinder.finder.DepartmentKeyword;
 
+/**
+ * @author Omri Harary
+ */
 @ConfigurationProperties("aaejo.jds.department-finder")
 public record DepartmentFinderProperties(List<String> templates, List<DepartmentKeyword> keywords) {
 }

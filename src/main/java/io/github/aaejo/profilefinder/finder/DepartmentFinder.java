@@ -1,10 +1,14 @@
 package io.github.aaejo.profilefinder.finder;
 
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
+import org.eclipse.collections.api.map.primitive.ImmutableObjectDoubleMap;
+import org.eclipse.collections.impl.map.mutable.primitive.ObjectDoubleHashMap;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
@@ -17,13 +21,15 @@ import io.github.aaejo.profilefinder.finder.configuration.DepartmentFinderProper
 import io.github.aaejo.profilefinder.finder.exception.DepartmentSiteNotFoundException;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * @author Omri Harary
+ */
 @Slf4j
 @Service
 public class DepartmentFinder extends BaseFinder {
 
     private final List<String> commonTemplates;
     private final List<DepartmentKeyword> departmentKeywords;
-    // private final CrawlingProperties crawlingProperties;
 
     public DepartmentFinder(FinderClient client, DepartmentFinderProperties properties, CrawlingProperties crawlingProperties) {
         super(client, crawlingProperties);
@@ -32,17 +38,31 @@ public class DepartmentFinder extends BaseFinder {
     }
 
     public double foundDepartmentSite(final Document page) {
-        double confidence = 0;
+        ImmutableObjectDoubleMap<DepartmentKeyword> report = foundDepartmentSiteDetailed(page);
+        if (report.size() == 1 && report.containsKey(DepartmentKeyword.UNDEFINED)) {
+            return report.get(DepartmentKeyword.UNDEFINED);
+        }
+        double confidence = report
+                .keyValuesView()
+                .collectDouble(kw -> kw.getTwo() * kw.getOne().getWeight()) // Scale each confidence by keyword weight
+                .sum(); // Sum confidences
+        log.info("{} confidence of finding department site at {} ", confidence, page.location());
+        return confidence;
+    }
+
+    public ImmutableObjectDoubleMap<DepartmentKeyword> foundDepartmentSiteDetailed(final Document page) {
         if (page == null) {
             log.info("Negative confidence that department site found at null page");
-            return -10;
+            return ObjectDoubleHashMap.<DepartmentKeyword>newWithKeysValues(DepartmentKeyword.UNDEFINED, -10)
+                    .toImmutable();
         }
-
+        
         try {
             int statusCode = page.connection().response().statusCode();
             if (statusCode >= 400) {
                 log.info("Negative confidence that department site found given HTTP {} status", statusCode);
-                return -10;
+                return ObjectDoubleHashMap.<DepartmentKeyword>newWithKeysValues(DepartmentKeyword.UNDEFINED, -10)
+                        .toImmutable();
             }
         } catch (IllegalArgumentException e) {
             // Protective case when trying to get response details before request has actually been made.
@@ -50,23 +70,29 @@ public class DepartmentFinder extends BaseFinder {
             log.debug("Cannot get connection response when Jsoup was not used to make the request.");
         }
 
+        ObjectDoubleHashMap<DepartmentKeyword> confidence = ObjectDoubleHashMap.newMap();
         String location = page.location();
         String title = page.title();
 
         for (DepartmentKeyword keyword : departmentKeywords) {
+            if (keyword.getWeight() <= 0.01) {
+                continue; // <= 0.01 weight keywords are only for crawl direction
+            }
+
+            confidence.addToValue(keyword, 0);
+
             if (StringUtils.containsAnyIgnoreCase(title, keyword.getVariants())) {
                 if (StringUtils.containsAnyIgnoreCase(title, "Department", "School")) {
                     log.debug("Page title contains \"{}\" and either \"Department\" or \"School\". Very high confidence", keyword.getVariants()[0]);
-                    log.info("Full confidence of finding department site at {}", location);
-                    confidence += 1 * keyword.getWeight();
+                    confidence.addToValue(keyword, 1);
                 } else if (StringUtils.containsIgnoreCase(title, "Degree")) {
                     log.debug(
                             "Page title contains \"{}\" and \"Degree\". Confidence reduced, likely found degree info page instead",
                             keyword.getVariants()[0]);
-                    confidence -= 1 * keyword.getWeight();
+                            confidence.addToValue(keyword, -1);
                 } else {
                     log.debug("Page title contains \"{}\" but no other keywords. Medium confidence added", keyword.getVariants()[0]);
-                    confidence += 0.5 * keyword.getWeight();
+                    confidence.addToValue(keyword, 0.5);
                 }
             }
             
@@ -75,7 +101,7 @@ public class DepartmentFinder extends BaseFinder {
             for (Element imgLink : relevantImageLinks) {
                 if (imgLink.parent().absUrl("href").equals(location)) {
                     log.debug("Found relevant image linking back to same page. High confidence added");
-                    confidence += 0.8 * keyword.getWeight();
+                    confidence.addToValue(keyword, 0.8);
                 }
                 /*
                 * NOTES:
@@ -91,7 +117,7 @@ public class DepartmentFinder extends BaseFinder {
             for (Element link : relevantLinks) {
                 if (link.absUrl("href").equals(location)) {
                     log.debug("Found relevant link back to same page. High confidence added");
-                    confidence += 0.8 * keyword.getWeight();
+                    confidence.addToValue(keyword, 0.8);
                 }
                 /*
                  * NOTES:
@@ -106,7 +132,7 @@ public class DepartmentFinder extends BaseFinder {
             // Relevant heading element, scaled by heading size
             Elements relevantHeadings = page.select(keyword.getRelevantHeading());
             for (Element heading : relevantHeadings) {
-                double modifier = keyword.getWeight() * switch (heading.tagName()) {
+                double modifier = switch (heading.tagName()) {
                     case "h1" -> 0.85;
                     case "h2" -> 0.82;
                     case "h3" -> 0.8;
@@ -116,14 +142,11 @@ public class DepartmentFinder extends BaseFinder {
                     default -> 0;
                 };
                 log.debug("{} confidence added based on relevant {}-level heading", modifier, heading.tagName());
-                confidence += modifier;
-                
-                // NOTE: might want to refine text matching on this one too
+                confidence.addToValue(keyword, modifier);                
             }
         }
 
-        log.info("{} confidence of finding department site at {} ", confidence, location);
-        return confidence;
+        return confidence.toImmutable();
     }
 
     public Document findDepartmentSite(Institution institution, Document inPage) {
@@ -177,12 +200,11 @@ public class DepartmentFinder extends BaseFinder {
         }
 
         // 2. Actual crawling I guess?
-        // TODO: Attempt to find a department listing
         // (*1) NOTE: currently starting from inPage again but maybe should go from highest confidence page found from step 1?
 
         // 2.1 Specialized crawling
 
-        queueLinksFromPage(crawlQueue, inPage, initialConfidence); // (*1)
+        queueLinksFromPage(crawlQueue, inPage, initialConfidence, institution); // (*1)
 
         target = null;
         while ((target = crawlQueue.poll()) != null) {
@@ -195,7 +217,7 @@ public class DepartmentFinder extends BaseFinder {
 
             double confidence = foundDepartmentSite(page);
             checkedLinks.add(target.url(), confidence);
-            queueLinksFromPage(crawlQueue, page, confidence);
+            queueLinksFromPage(crawlQueue, page, confidence, institution);
         }
 
         // 2.2 Just crawl every link possible maybe? (maintaining checkedLinks)
@@ -209,13 +231,29 @@ public class DepartmentFinder extends BaseFinder {
         return client.get(best.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
     }
 
-    private int queueLinksFromPage(CrawlQueue queue, Document page, double pageConfidence) {
+    public DepartmentKeyword getPrimaryDepartment() {
+        return departmentKeywords.stream().filter(DepartmentKeyword::isPrimary).findFirst().get();
+    }
+
+    public String[] getRelevantDepartmentVariants() {
+        List<String> variants = new ArrayList<>();
+        for (DepartmentKeyword kw : departmentKeywords) {
+            if (kw.getWeight() > 0.01) {
+                variants.addAll(Arrays.asList(kw.getVariants()));
+            }
+        }
+        String[] varArray = new String[variants.size()];
+        variants.toArray(varArray);
+        return varArray;
+    }
+
+    private int queueLinksFromPage(CrawlQueue queue, Document page, double pageConfidence, Institution institution) {
         if (page == null) {
             return -1;
         }
 
         int count = 0;
-        String host = StringUtils.removeStart(URI.create(page.location()).getHost(), "www.");
+        String host = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
         for (DepartmentKeyword keyword : departmentKeywords) {
             // Scale target's weight in queue by keyword weight and page confidence. Crawl targets will be left with
             // their highest found weight in the queue because of the logic in CrawlQueue.offer

@@ -5,6 +5,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
 
+/**
+ * @author Omri Harary
+ */
 @Configuration
 public class TopicConfiguration {
 
