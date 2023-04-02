@@ -35,4 +35,18 @@ public class TopicConfiguration {
                 .name("profiles")
                 .build();
     }
+
+    @Bean
+    public NewTopic departmentDebugTopic() {
+        return TopicBuilder
+                .name("department.debug")
+                .build();
+    }
+
+    @Bean
+    public NewTopic facultyDebugTopic() {
+        return TopicBuilder
+                .name("faculty.debug")
+                .build();
+    }
 }

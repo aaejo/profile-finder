@@ -4,8 +4,10 @@ import java.util.Locale;
 
 import org.apache.commons.lang3.StringUtils;
 import org.jsoup.nodes.Document;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 import io.github.aaejo.finder.client.FinderClient;
@@ -24,6 +26,9 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 @KafkaListener(id = "profile-finder", topics = "institutions")
 public class InstitutionsListener {
+
+    @Autowired
+    KafkaTemplate<String, SimpleDebugData> debugTemplate;
 
     private final DepartmentFinder departmentFinder;
     private final FacultyFinder facultyFinder;
@@ -65,22 +70,33 @@ public class InstitutionsListener {
         }
 
         double foundFacultyList = facultyFinder.foundFacultyList(page);
-        if (foundFacultyList < 1) { // Some institutions may already have the faculty page identified
+        if (foundFacultyList < 1.4) { // Some institutions may already have the faculty page identified
             double foundDepartmentSite = departmentFinder.foundDepartmentSite(page);
-            if (foundDepartmentSite < 1) { // Some institutions may already have the department page identified
+            if (foundDepartmentSite < 1.4) { // Some institutions may already have the department page identified
                 // Find department site
                 page = departmentFinder.findDepartmentSite(institution, page, foundDepartmentSite);
                 // Re-calculate faculty list confidence because page changed
                 foundFacultyList = facultyFinder.foundFacultyList(page);
             }
+
+            if (departmentFinder.debugData == null) // Means the finder didn't run
+                debugTemplate.send("department.debug", institution.name(), new SimpleDebugData(institution, page.location(), foundDepartmentSite));
+            else
+                departmentFinder.debugData = null;
+
             // Find faculty list
             page = facultyFinder.findFacultyList(institution, page, foundFacultyList);
         }
 
         // Maybe try to find more accurate department mailing address in here somewhere?
 
+        if (facultyFinder.debugData == null) // Means the finder didn't run
+            debugTemplate.send("faculty.debug", institution.name(), new SimpleDebugData(institution, page.location(), foundFacultyList));
+        else
+            facultyFinder.debugData = null;
+
         // Find profiles from faculty list
-        profileFinder.findProfiles(institution, page);
+        // profileFinder.findProfiles(institution, page);
 
         log.info("{} (likely) profiles found for {}", profileFinder.getFoundProfilesCount(institution.name()),
                 institution.name());

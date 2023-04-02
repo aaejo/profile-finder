@@ -19,6 +19,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public abstract class BaseFinder {
 
+    public DebugData debugData;
+
     protected final FinderClient client;
     protected final CrawlingProperties crawlingProperties;
 
@@ -62,6 +64,12 @@ public abstract class BaseFinder {
             drillDown.add(mainContentByIdContent);
         }
 
+        Element mainContentByIdMainContent = page.getElementById("main-content");
+        if (mainContentByIdMainContent != null && mainContentByIdMainContent.tag().isBlock()) {
+            log.debug("Found main content of {} by id = main-content", page.location());
+            drillDown.add(mainContentByIdMainContent);
+        }
+
         return drillDown.stream()
                 .distinct()
                 .sorted(Comparator.<Element>comparingInt(e -> e.parents().size()).reversed())
@@ -90,26 +98,46 @@ public abstract class BaseFinder {
     protected int tryAddLinks(CrawlQueue queue, String host, double initialWeight, Elements links) {
         int count = 0;
         for (Element addLink : links) {
-            String href = addLink.absUrl("href");
-            if (StringUtils.containsAny(href, crawlingProperties.disallowedHosts())) {
-                log.debug("Will not crawl link to disallowed host {}", href);
+            if (StringUtils.startsWith(addLink.attr("href"), "#")) { // Getting non-absolute URL for once
+                log.debug("Skipping relative fragment link to item on same page");
                 continue;
             }
 
-            if (!StringUtils.contains(href, host)) { // Naively determine if link leads to different host
-                if (crawlingProperties.offHostCrawlingAllowed()) { // If off-host crawling is allowed
-                    log.debug("Decreasing weight of off-site link {}", href);
-                    // Adjust priority of links going to different hosts
-                    initialWeight *= crawlingProperties.offHostCrawlingWeight();
-                } else {
-                    log.debug("Skipping off-site link {}", href);
-                    continue; // Skip if off-host crawling is not allowed
-                }
+            String href = addLink.absUrl("href");
+            if (StringUtils.containsAnyIgnoreCase(addLink.text(), "Intranet")) {
+                log.debug("Skipping link based on text keyword(s). Text = {}, url = {}", addLink.text(), href);
+                continue;
             }
-            if (queue.add(href, initialWeight)) {
+
+            if (tryAddLink(queue, host, initialWeight, href)) {
                 count++;
             }
         }
         return count;
+    }
+
+    protected boolean tryAddLink(CrawlQueue queue, String host, double initialWeight, String url) {
+        if (StringUtils.containsAny(url, crawlingProperties.disallowedHosts())) {
+            log.debug("Will not crawl link to disallowed host {}", url);
+            return false;
+        }
+
+        if (!StringUtils.contains(url, host)) { // Naively determine if link leads to different host
+            if (crawlingProperties.offHostCrawlingAllowed()) { // If off-host crawling is allowed
+                log.debug("Decreasing weight of off-site link {}", url);
+                // Adjust priority of links going to different hosts
+                initialWeight *= crawlingProperties.offHostCrawlingWeight();
+            } else {
+                log.debug("Skipping off-site link {}", url);
+                return false; // Skip if off-host crawling is not allowed
+            }
+        }
+
+        if (StringUtils.endsWithAny(url, ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx")) {
+            log.debug("Skipping link to downloadable document {}", url);
+            return false;
+        }
+
+        return queue.add(url, initialWeight);
     }
 }

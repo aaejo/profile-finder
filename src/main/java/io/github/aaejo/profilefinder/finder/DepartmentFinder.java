@@ -1,10 +1,7 @@
 package io.github.aaejo.profilefinder.finder;
 
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
-import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.collections.api.map.primitive.ImmutableObjectDoubleMap;
@@ -12,6 +9,8 @@ import org.eclipse.collections.impl.map.mutable.primitive.ObjectDoubleHashMap;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import io.github.aaejo.finder.client.FinderClient;
@@ -28,13 +27,14 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class DepartmentFinder extends BaseFinder {
 
-    private final List<String> commonTemplates;
-    private final List<DepartmentKeyword> departmentKeywords;
+    @Autowired
+    private KafkaTemplate<String, DebugData> debugTemplate;
+
+    private final DepartmentFinderProperties properties;
 
     public DepartmentFinder(FinderClient client, DepartmentFinderProperties properties, CrawlingProperties crawlingProperties) {
         super(client, crawlingProperties);
-        this.commonTemplates = properties.templates();
-        this.departmentKeywords = properties.keywords();
+        this.properties = properties;
     }
 
     public double foundDepartmentSite(final Document page) {
@@ -74,11 +74,7 @@ public class DepartmentFinder extends BaseFinder {
         String location = page.location();
         String title = page.title();
 
-        for (DepartmentKeyword keyword : departmentKeywords) {
-            if (keyword.getWeight() <= 0.01) {
-                continue; // <= 0.01 weight keywords are only for crawl direction
-            }
-
+        for (DepartmentKeyword keyword : properties.getImportantDepartmentKeywords()) {
             confidence.addToValue(keyword, 0);
 
             if (StringUtils.containsAnyIgnoreCase(title, keyword.getVariants())) {
@@ -157,32 +153,41 @@ public class DepartmentFinder extends BaseFinder {
     public Document findDepartmentSite(Institution institution, Document inPage, double initialConfidence) {
         CrawlQueue checkedLinks = new CrawlQueue();
         checkedLinks.add(inPage.location(), initialConfidence);
+        debugData = new DebugData();
+        debugData.institution = institution;
+        debugData.checkedLinks = checkedLinks;
 
         // 1. Try some basics
         String hostname = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
 
-        for (String template : commonTemplates) {
+        for (String template : properties.getTemplates()) {
             String templatedUrl = String.format(template, hostname);
             Document page = client.get(templatedUrl);
 
             double confidence = foundDepartmentSite(page);
 
-            checkedLinks.add(templatedUrl, confidence);
+            if (page != null) {
+                // ...
+                checkedLinks.add(page.location(), confidence);
+            } else {
+                checkedLinks.add(templatedUrl, confidence);
+            }
 
-            if (confidence >= 1) {
+            if (confidence >= 1.4) {
+                debugData.details = "Templating";
+                debugTemplate.send("department.debug", institution.name(), debugData);
                 return page;
             }
         }
 
         HashSet<String> flatSiteMap = client.getSiteMapURLs(inPage.location());
+        String host = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
         CrawlQueue crawlQueue = new CrawlQueue();
 
         for (String url : flatSiteMap) {
-            for (DepartmentKeyword keyword : departmentKeywords) {
+            for (DepartmentKeyword keyword : properties.getKeywords()) {
                 if (StringUtils.containsAnyIgnoreCase(url, keyword.getVariants())) {
-                    crawlQueue.add(new CrawlTarget(url, keyword.getWeight()));
-                    break; // Break after adding so we don't bother trying to add the same url multiple times
-                           // e.g. when we have multiple matches on the same url
+                    tryAddLink(crawlQueue, host, keyword.getWeight(), url);
                 }
             }
         }
@@ -193,8 +198,14 @@ public class DepartmentFinder extends BaseFinder {
 
             double confidence = foundDepartmentSite(page);
 
-            checkedLinks.add(page.location(), confidence);
-            if (confidence >= 1) {
+            if (page != null && !target.url().equals(page.location())) {
+                // ...
+                checkedLinks.add(page.location(), confidence);
+            }
+            checkedLinks.add(target.url(), confidence);
+            if (confidence >= 1.4) {
+                debugData.details = "SiteMap";
+                debugTemplate.send("department.debug", institution.name(), debugData);
                 return page;
             }
         }
@@ -216,6 +227,10 @@ public class DepartmentFinder extends BaseFinder {
             Document page = client.get(target.url());
 
             double confidence = foundDepartmentSite(page);
+            if (page != null && !target.url().equals(page.location())) {
+                // ...
+                checkedLinks.add(page.location(), confidence);
+            }
             checkedLinks.add(target.url(), confidence);
             queueLinksFromPage(crawlQueue, page, confidence, institution);
         }
@@ -224,6 +239,8 @@ public class DepartmentFinder extends BaseFinder {
 
         CrawlTarget best = checkedLinks.peek();
 
+        debugData.details = "Crawling";
+        debugTemplate.send("department.debug", institution.name(), debugData);
         if (best.weight() < 1) {
             throw new DepartmentSiteNotFoundException(institution, best.url(), best.weight());
         }
@@ -232,19 +249,11 @@ public class DepartmentFinder extends BaseFinder {
     }
 
     public DepartmentKeyword getPrimaryDepartment() {
-        return departmentKeywords.stream().filter(DepartmentKeyword::isPrimary).findFirst().get();
+        return properties.getPrimary();
     }
 
-    public String[] getRelevantDepartmentVariants() {
-        List<String> variants = new ArrayList<>();
-        for (DepartmentKeyword kw : departmentKeywords) {
-            if (kw.getWeight() > 0.01) {
-                variants.addAll(Arrays.asList(kw.getVariants()));
-            }
-        }
-        String[] varArray = new String[variants.size()];
-        variants.toArray(varArray);
-        return varArray;
+    public String[] getImportantDepartmentVariants() {
+        return properties.getImportantDepartmentVariants();
     }
 
     private int queueLinksFromPage(CrawlQueue queue, Document page, double pageConfidence, Institution institution) {
@@ -254,7 +263,7 @@ public class DepartmentFinder extends BaseFinder {
 
         int count = 0;
         String host = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
-        for (DepartmentKeyword keyword : departmentKeywords) {
+        for (DepartmentKeyword keyword : properties.getKeywords()) {
             // Scale target's weight in queue by keyword weight and page confidence. Crawl targets will be left with
             // their highest found weight in the queue because of the logic in CrawlQueue.offer
             double weight = pageConfidence * keyword.getWeight();

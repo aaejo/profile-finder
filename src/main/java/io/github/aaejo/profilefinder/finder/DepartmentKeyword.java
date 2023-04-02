@@ -1,5 +1,7 @@
 package io.github.aaejo.profilefinder.finder;
 
+import java.util.Comparator;
+
 import org.jsoup.select.Evaluator;
 import org.jsoup.select.QueryParser;
 import org.springframework.boot.context.properties.bind.DefaultValue;
@@ -7,15 +9,15 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 /**
  * @author Omri Harary
  */
-public class DepartmentKeyword {
+public class DepartmentKeyword implements Comparable<DepartmentKeyword> {
     public static final DepartmentKeyword UNDEFINED = new DepartmentKeyword(new String[]{"undefined"}, Double.NaN, false);
 
-    private String[] variants;
-    private double weight;
-    private boolean primary;
-    private Evaluator relevantImageLink;
-    private Evaluator relevantLink;
-    private Evaluator relevantHeading;
+    private final String[] variants;
+    private final double weight;
+    private final boolean primary;
+    private final Evaluator relevantImageLink;
+    private final Evaluator relevantLink;
+    private final Evaluator relevantHeading;
 
     public DepartmentKeyword(String[] variants, double weight, @DefaultValue("false") boolean primary) {
         this.variants = variants;
@@ -84,5 +86,14 @@ public class DepartmentKeyword {
      */
     public Evaluator getRelevantHeading() {
         return relevantHeading;
+    }
+
+    @Override
+    public int compareTo(DepartmentKeyword o) {
+        return Comparator
+                .comparing(DepartmentKeyword::isPrimary) // Sort by primary-ness first
+                .thenComparing(Comparator.comparing(DepartmentKeyword::getWeight)) // Then by weight
+                .reversed() // In descending order
+                .compare(this, o);
     }
 }

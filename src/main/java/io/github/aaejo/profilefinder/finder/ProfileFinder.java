@@ -47,12 +47,13 @@ public class ProfileFinder extends BaseFinder {
         DEPARTMENT_SPECIFIC,
         DEPARTMENT_CONTAINS,
         DEPARTMENT_UNKNOWN,
+        SINGLE_WELL_NAMED,
         SINGLE_LIST,
         SINGLE_TABLE
     }
 
     enum Strategy {
-        COMMON_TAG, SINGLE_LIST, SINGLE_TABLE, SINGLE_LIST_CAREFUL, SINGLE_TABLE_CAREFUL
+        COMMON_TAG, SINGLE_LIST, SINGLE_TABLE, SINGLE_LIST_CAREFUL, SINGLE_TABLE_CAREFUL, SINGLE_WELL_NAMED, SINGLE_WELL_NAMED_CAREFUL
     }
 
     public void findProfiles(Institution institution, final Document facultyPage) {
@@ -107,7 +108,7 @@ public class ProfileFinder extends BaseFinder {
             // Results will need to be checked for indicators of relevance
         }
 
-        // Look for separators!!
+        // Look for separators!! (incl <hr>)
 
         List<Element> wellNamedItems = content
                 .select("[id*=contact], [id*=bio], [id*=person], [id*=staff], [id*=faculty], [id*=instructors], [id*=people], "
@@ -120,13 +121,17 @@ public class ProfileFinder extends BaseFinder {
         if (wellNamedItems.size() == 1) {
             // If there's only 1, then it's probably a parent of what we want
             // Maybe let's commonTagStrategy it?
+            strategyConditions.add(StrategyCondition.SINGLE_WELL_NAMED);
         } else {
             // Fair chance we found what we need
         }
 
         Elements unorderedLists = content.getElementsByTag("ul");
         if (unorderedLists.size() == 1) {
-            strategyConditions.add(StrategyCondition.SINGLE_LIST);
+            if (!StringUtils.containsAnyIgnoreCase(unorderedLists.first().id(), "page", "pagination")
+                    && !StringUtils.containsAnyIgnoreCase(unorderedLists.first().className(), "page", "pagination")) {
+                strategyConditions.add(StrategyCondition.SINGLE_LIST);
+            }
         } else {
             List<Element> relevantUnorderedLists = new ArrayList<Element>();
             for (Element ul : unorderedLists) {
@@ -135,6 +140,11 @@ public class ProfileFinder extends BaseFinder {
                     relevantUnorderedLists.add(ul);
                     unorderedLists.remove(ul);
                 } 
+            }
+
+            if (relevantUnorderedLists.size() == 1) {
+                strategyConditions.add(StrategyCondition.SINGLE_LIST);
+                unorderedLists = (Elements) relevantUnorderedLists;
             }
         }
 
@@ -149,15 +159,17 @@ public class ProfileFinder extends BaseFinder {
         }
 
         if (strategyConditions.contains(StrategyCondition.DEPARTMENT_SPECIFIC)) {
-            if (false) {
-
+            if (strategyConditions.contains(StrategyCondition.SINGLE_WELL_NAMED)) {
+                strategy = Strategy.SINGLE_WELL_NAMED;
             } else if (strategyConditions.contains(StrategyCondition.SINGLE_LIST)) {
                 strategy = Strategy.SINGLE_LIST;
             } else if (strategyConditions.contains(StrategyCondition.SINGLE_TABLE)) {
                 strategy = Strategy.SINGLE_TABLE;
             }
         } else {
-            if (strategyConditions.contains(StrategyCondition.SINGLE_LIST)) {
+            if (strategyConditions.contains(StrategyCondition.SINGLE_WELL_NAMED)) {
+                strategy = Strategy.SINGLE_WELL_NAMED_CAREFUL;
+            } else if (strategyConditions.contains(StrategyCondition.SINGLE_LIST)) {
                 strategy = Strategy.SINGLE_LIST_CAREFUL;
             } else if (strategyConditions.contains(StrategyCondition.SINGLE_TABLE)) {
                 strategy = Strategy.SINGLE_TABLE_CAREFUL;
@@ -171,6 +183,8 @@ public class ProfileFinder extends BaseFinder {
                 case SINGLE_LIST_CAREFUL -> careful(singleListStrategy(unorderedLists.first()));
                 case SINGLE_TABLE -> singleTableStrategy(tables.first());
                 case SINGLE_TABLE_CAREFUL -> careful(singleTableStrategy(tables.first()));
+                case SINGLE_WELL_NAMED -> commonTagStrategy(wellNamedItems.get(0));
+                case SINGLE_WELL_NAMED_CAREFUL -> careful(commonTagStrategy(wellNamedItems.get(0)));
                 default -> throw new IllegalArgumentException("Unexpected value: " + strategy);
             };
             for (Element element : facultyListElements) {
@@ -253,7 +267,7 @@ public class ProfileFinder extends BaseFinder {
 
     private List<Element> careful(List<Element> elements) {
         return elements.stream()
-                .filter(e -> StringUtils.containsAnyIgnoreCase(e.text(), departmentFinder.getRelevantDepartmentVariants()))
+                .filter(e -> StringUtils.containsAnyIgnoreCase(e.text(), departmentFinder.getImportantDepartmentVariants()))
                 .toList();
     }
 
