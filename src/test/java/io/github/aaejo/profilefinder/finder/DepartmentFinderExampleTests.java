@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.*;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.jsoup.Jsoup;
@@ -27,10 +28,10 @@ public class DepartmentFinderExampleTests {
             "https://%s/humanities/philosophy",
             "https://phil.%s"
         );
-    List<DepartmentKeyword> departmentKeywords = List.of(
+    List<DepartmentKeyword> departmentKeywords = new ArrayList<>(List.of(
             new DepartmentKeyword(new String[]{"philosophy"}, 1.0, true),
             new DepartmentKeyword(new String[]{"humanities"}, 0.8, false),
-            new DepartmentKeyword(new String[]{"social science", "social-science", "socialscience"}, 0.8, false));
+            new DepartmentKeyword(new String[]{"social science", "social-science", "socialscience"}, 0.8, false)));
     DepartmentFinderProperties dfProps = new DepartmentFinderProperties(commonTemplates, departmentKeywords);
     
     String[] disallowedHosts = { "outlook.com", "sharepoint.com" };
