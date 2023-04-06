@@ -101,168 +101,173 @@ public class ProfileFinder extends BaseFinder {
             }
         }
 
-        // do {
-        List<Element> sectionContents = new ArrayList<>();
-        if (specificity != DepartmentSpecificity.DEPARTMENT_SPECIFIC) {
-            // Look for headers
-            Elements primaryHeadings = content.select(departmentFinder.getPrimaryDepartment().getRelevantHeading());
-            Element sectionHeading = null;
-            for (Element pHeading : primaryHeadings) {
-                if (pHeading.siblingElements().stream()
-                        .anyMatch(e -> !e.equals(pHeading) && e.tag().equals(pHeading.tag()))) {
-                    sectionHeading = pHeading;
-                    break;
-                }
-            }
-            if (sectionHeading != null) {
-                // Walk through all sibling elements following sectionHeading until we run out
-                // or hit another heading of the same level
-                for (Element sib : sectionHeading.nextElementSiblings()) {
-                    if (!sib.tag().equals(sectionHeading.tag())) {
-                        sectionContents.add(sib);
-                    } else {
-                        // Another heading of the same type means we've hit another section
+        do {
+            List<Element> sectionContents = new ArrayList<>();
+            if (specificity != DepartmentSpecificity.DEPARTMENT_SPECIFIC) {
+                // Look for headers
+                Elements primaryHeadings = content.select(departmentFinder.getPrimaryDepartment().getRelevantHeading());
+                Element sectionHeading = null;
+                for (Element pHeading : primaryHeadings) {
+                    if (pHeading.siblingElements().stream()
+                            .anyMatch(e -> !e.equals(pHeading) && e.tag().equals(pHeading.tag()))) {
+                        sectionHeading = pHeading;
                         break;
                     }
                 }
-                strategyConditions.add(StrategyCondition.DEPARTMENT_SPECIFIC_SUBSECTION);
-            }
-        }
-
-        Elements images = content.getElementsByTag("img");
-        if (!images.isEmpty()) {
-            strategyConditions.add(StrategyCondition.IMAGES);
-        }
-
-        List<Element> veryWellNamedItems = content
-                .select(".contact-card, .person, .profile, .staff-card, .staff-listing")
-                .stream()
-                .distinct()
-                .filter(e -> e.tag().isBlock())
-                .toList();
-
-        if (!veryWellNamedItems.isEmpty()) {
-            strategyConditions.add(StrategyCondition.VERY_WELL_NAMED);
-
-            boolean eachHasExactlyOneImage      = true;
-            boolean eachHasExactlyOneEmailLink  = true;
-            boolean eachHasExactlyOneUniqueLink = true;
-
-            for (Element item : veryWellNamedItems) {
-                eachHasExactlyOneImage &= item.getElementsByTag("img").size() == 1;
-                eachHasExactlyOneEmailLink &= item.select("a[href^=mailto:]").size() == 1;
-                // Sometimes there are multiple links, but they all go to the same page
-                eachHasExactlyOneUniqueLink &= item.select("a[href]:not([href^=mailto:]):not([href^=tel])")
-                                                .eachAttr("abs:href").stream().distinct().count() == 1;
-            }
-
-            if (eachHasExactlyOneImage || eachHasExactlyOneEmailLink || eachHasExactlyOneUniqueLink) {
-                strategyConditions.add(StrategyCondition.IDEAL_COUNT);
-            }
-        }
-
-
-        List<Element> wellNamedItems = content
-                .select("[id*=contact], [id*=bio], [id*=person], [id*=staff], [id*=faculty], [id*=instructors], [id*=people], "
-                        + "[class*=contact], [class*=bio], [class*=person], [class*=staff], [class*=faculty], [class*=instructors], [class*=people]")
-                .stream()
-                .distinct()
-                .filter(e -> e.tag().isBlock())
-                .toList();
-
-        if (!wellNamedItems.isEmpty()) {
-            if (wellNamedItems.size() == 1) {
-                // If there's only 1, then it's probably a parent of what we want
-                // Maybe let's commonTagStrategy it?
-                strategyConditions.add(StrategyCondition.SINGLE_WELL_NAMED);
-            } else if (strategyConditions.contains(StrategyCondition.IMAGES) && wellNamedItems.size() == images.size()) {
-                strategyConditions.add(StrategyCondition.IDEAL_COUNT);
-                strategyConditions.add(StrategyCondition.WELL_NAMED);
-            } else if (strategyConditions.contains(StrategyCondition.IMAGES) && wellNamedItems.size() % images.size() == 0) {
-                // 
-            } else {
-                // Fair chance we found what we need
-            }
-        }
-
-        Elements unorderedLists = content.getElementsByTag("ul");
-        if (!unorderedLists.isEmpty()) {
-            if (unorderedLists.size() == 1) {
-                if (!StringUtils.containsAnyIgnoreCase(unorderedLists.first().id(), "page", "pagination")
-                        && !StringUtils.containsAnyIgnoreCase(unorderedLists.first().className(), "page", "pagination")) {
-                    strategyConditions.add(StrategyCondition.SINGLE_LIST);
-                }
-            } else {
-                List<Element> relevantUnorderedLists = new ArrayList<Element>();
-                for (Element ul : unorderedLists) {
-                    if (StringUtils.containsAny(ul.id(), "staff", "faculty", "instructors", "people")
-                            || StringUtils.containsAny(ul.className(), "staff", "faculty", "instructors", "people")) {
-                        relevantUnorderedLists.add(ul);
-                        unorderedLists.remove(ul);
-                    } 
-                }
-
-                if (!relevantUnorderedLists.isEmpty()) {
-                    if (relevantUnorderedLists.size() == 1) {
-                        strategyConditions.add(StrategyCondition.SINGLE_LIST);
-                    } else {
-                        strategyConditions.add(StrategyCondition.RELEVANT_LISTS);
+                if (sectionHeading != null) {
+                    // Walk through all sibling elements following sectionHeading until we run out
+                    // or hit another heading of the same level
+                    for (Element sib : sectionHeading.nextElementSiblings()) {
+                        if (!sib.tag().equals(sectionHeading.tag())) {
+                            sectionContents.add(sib);
+                        } else {
+                            // Another heading of the same type means we've hit another section
+                            break;
+                        }
                     }
-                    unorderedLists = (Elements) relevantUnorderedLists;
+                    strategyConditions.add(StrategyCondition.DEPARTMENT_SPECIFIC_SUBSECTION);
                 }
             }
-        }
 
-        Elements tables = content.getElementsByTag("table");
-        if (tables.size() == 1) {
-            // 1 big table? Probably what we're looking for
-            strategyConditions.add(StrategyCondition.SINGLE_TABLE);
-        } else {
-            // ... I dunno?
-        }
+            Elements images = content.getElementsByTag("img");
+            if (!images.isEmpty()) {
+                strategyConditions.add(StrategyCondition.IMAGES);
+            }
 
-        List<Element> separators = content
-                .select("hr, [class*=spacer], [class*=separator]")
-                .stream()
-                .distinct()
-                .toList();
+            List<Element> veryWellNamedItems = content
+                    .select(".contact-card, .person, .profile, .staff-card, .staff-listing")
+                    .stream()
+                    .distinct()
+                    .filter(e -> e.tag().isBlock())
+                    .toList();
 
-        List<Element> scope = null;
-        DepartmentSpecificity scopedSpecificity = specificity; // Sometimes our scope will be more specific than the page
-        Function<Element, List<Element>> strategyFunction;
-        
-        if (strategyConditions.contains(StrategyCondition.DEPARTMENT_SPECIFIC_SUBSECTION)) {
-            scope = sectionContents;
-            scopedSpecificity = DepartmentSpecificity.DEPARTMENT_SPECIFIC;
-            strategyFunction = this::subsectionStrategy;
-        } else if (strategyConditions.contains(StrategyCondition.IDEAL_COUNT) 
-                && strategyConditions.contains(StrategyCondition.VERY_WELL_NAMED)) {
-            scope = veryWellNamedItems;
-            strategyFunction = List::of;
-        } else if (strategyConditions.contains(StrategyCondition.IDEAL_COUNT) 
-                && strategyConditions.contains(StrategyCondition.WELL_NAMED)) {
-            scope = wellNamedItems;
-            strategyFunction = List::of;
-        } else if (strategyConditions.contains(StrategyCondition.SINGLE_WELL_NAMED)) {
-            scope = List.of(wellNamedItems.get(0));
-            strategyFunction = this::commonTagStrategy;
-        } else if (strategyConditions.contains(StrategyCondition.SINGLE_LIST)) {
-            scope = List.of(unorderedLists.first());
-            strategyFunction = this::singleListStrategy;
-        } else if (strategyConditions.contains(StrategyCondition.SINGLE_TABLE)) {
-            scope = List.of(tables.first());
-            strategyFunction = this::singleTableStrategy;
-        } else if (strategyConditions.contains(StrategyCondition.SEPARATORS)) {
-            strategyFunction = null;
-        } else if (strategyConditions.contains(StrategyCondition.VERY_WELL_NAMED)) {
-            // If nothing else worked, and we have some very well named items, we'll use them
-            // even if the count doesn't seem ideal?
-            scope = veryWellNamedItems;
-            strategyFunction = List::of;
-        } else {
-            scope = List.of(content);
-            strategyFunction = this::commonTagStrategy;
-        }
+            if (!veryWellNamedItems.isEmpty()) {
+                strategyConditions.add(StrategyCondition.VERY_WELL_NAMED);
+
+                boolean eachHasExactlyOneImage = true;
+                boolean eachHasExactlyOneEmailLink = true;
+                boolean eachHasExactlyOneUniqueLink = true;
+
+                for (Element item : veryWellNamedItems) {
+                    eachHasExactlyOneImage &= item.getElementsByTag("img").size() == 1;
+                    eachHasExactlyOneEmailLink &= item.select("a[href^=mailto:]").size() == 1;
+                    // Sometimes there are multiple links, but they all go to the same page
+                    eachHasExactlyOneUniqueLink &= item.select("a[href]:not([href^=mailto:]):not([href^=tel])")
+                            .eachAttr("abs:href").stream().distinct().count() == 1;
+                }
+
+                if (eachHasExactlyOneImage || eachHasExactlyOneEmailLink || eachHasExactlyOneUniqueLink) {
+                    strategyConditions.add(StrategyCondition.IDEAL_COUNT);
+                }
+            }
+
+            List<Element> wellNamedItems = content
+                    .select("[id*=contact], [id*=bio], [id*=person], [id*=staff], [id*=faculty], [id*=instructors], [id*=people], "
+                            + "[class*=contact], [class*=bio], [class*=person], [class*=staff], [class*=faculty], [class*=instructors], [class*=people]")
+                    .stream()
+                    .distinct()
+                    .filter(e -> e.tag().isBlock())
+                    .toList();
+
+            if (!wellNamedItems.isEmpty()) {
+                if (wellNamedItems.size() == 1) {
+                    // If there's only 1, then it's probably a parent of what we want
+                    // Maybe let's commonTagStrategy it?
+                    strategyConditions.add(StrategyCondition.SINGLE_WELL_NAMED);
+                } else if (strategyConditions.contains(StrategyCondition.IMAGES)
+                        && wellNamedItems.size() == images.size()) {
+                    strategyConditions.add(StrategyCondition.IDEAL_COUNT);
+                    strategyConditions.add(StrategyCondition.WELL_NAMED);
+                } else if (strategyConditions.contains(StrategyCondition.IMAGES)
+                        && wellNamedItems.size() % images.size() == 0) {
+                    //
+                } else {
+                    // Fair chance we found what we need
+                }
+            }
+
+            Elements unorderedLists = content.getElementsByTag("ul");
+            if (!unorderedLists.isEmpty()) {
+                if (unorderedLists.size() == 1) {
+                    if (!StringUtils.containsAnyIgnoreCase(unorderedLists.first().id(), "page", "pagination")
+                            && !StringUtils.containsAnyIgnoreCase(unorderedLists.first().className(), "page",
+                                    "pagination")) {
+                        strategyConditions.add(StrategyCondition.SINGLE_LIST);
+                    }
+                } else {
+                    List<Element> relevantUnorderedLists = new ArrayList<Element>();
+                    for (Element ul : unorderedLists) {
+                        if (StringUtils.containsAny(ul.id(), "staff", "faculty", "instructors", "people")
+                                || StringUtils.containsAny(ul.className(), "staff", "faculty", "instructors",
+                                        "people")) {
+                            relevantUnorderedLists.add(ul);
+                            unorderedLists.remove(ul);
+                        }
+                    }
+
+                    if (!relevantUnorderedLists.isEmpty()) {
+                        if (relevantUnorderedLists.size() == 1) {
+                            strategyConditions.add(StrategyCondition.SINGLE_LIST);
+                        } else {
+                            strategyConditions.add(StrategyCondition.RELEVANT_LISTS);
+                        }
+                        unorderedLists = (Elements) relevantUnorderedLists;
+                    }
+                }
+            }
+
+            Elements tables = content.getElementsByTag("table");
+            if (tables.size() == 1) {
+                // 1 big table? Probably what we're looking for
+                strategyConditions.add(StrategyCondition.SINGLE_TABLE);
+            } else {
+                // ... I dunno?
+            }
+
+            List<Element> separators = content
+                    .select("hr, [class*=spacer], [class*=separator]")
+                    .stream()
+                    .distinct()
+                    .toList();
+
+            List<Element> scope = null;
+            DepartmentSpecificity scopedSpecificity = specificity; // Sometimes our scope will be more specific than the
+                                                                   // page
+            Function<Element, List<Element>> strategyFunction;
+
+            if (strategyConditions.contains(StrategyCondition.DEPARTMENT_SPECIFIC_SUBSECTION)) {
+                scope = sectionContents;
+                scopedSpecificity = DepartmentSpecificity.DEPARTMENT_SPECIFIC;
+                strategyFunction = this::subsectionStrategy;
+            } else if (strategyConditions.contains(StrategyCondition.IDEAL_COUNT)
+                    && strategyConditions.contains(StrategyCondition.VERY_WELL_NAMED)) {
+                scope = veryWellNamedItems;
+                strategyFunction = List::of;
+            } else if (strategyConditions.contains(StrategyCondition.IDEAL_COUNT)
+                    && strategyConditions.contains(StrategyCondition.WELL_NAMED)) {
+                scope = wellNamedItems;
+                strategyFunction = List::of;
+            } else if (strategyConditions.contains(StrategyCondition.SINGLE_WELL_NAMED)) {
+                scope = List.of(wellNamedItems.get(0));
+                strategyFunction = this::commonTagStrategy;
+            } else if (strategyConditions.contains(StrategyCondition.SINGLE_LIST)) {
+                scope = List.of(unorderedLists.first());
+                strategyFunction = this::singleListStrategy;
+            } else if (strategyConditions.contains(StrategyCondition.SINGLE_TABLE)) {
+                scope = List.of(tables.first());
+                strategyFunction = this::singleTableStrategy;
+            } else if (strategyConditions.contains(StrategyCondition.SEPARATORS)) {
+                strategyFunction = null;
+            } else if (strategyConditions.contains(StrategyCondition.VERY_WELL_NAMED)) {
+                // If nothing else worked, and we have some very well named items, we'll use
+                // them
+                // even if the count doesn't seem ideal?
+                scope = veryWellNamedItems;
+                strategyFunction = List::of;
+            } else {
+                scope = List.of(content);
+                strategyFunction = this::commonTagStrategy;
+            }
 
             List<Element> facultyListElements = applyStrategy(scope, scopedSpecificity, strategyFunction);
             for (Element element : facultyListElements) {
@@ -293,7 +298,7 @@ public class ProfileFinder extends BaseFinder {
             } else {
                 hasNextPage = false;
             }
-        // } while (hasNextPage);
+        } while (hasNextPage);
     }
 
     private List<Element> applyStrategy(List<Element> scope, DepartmentSpecificity specificity, Function<Element, List<Element>> strategy) {
