@@ -12,7 +12,7 @@
 
 	<groupId>io.github.aaejo</groupId>
 	<artifactId>profile-finder</artifactId>
-	<version>1.0.0-beta</version>
+	<version>1.0.0</version>
 	<name>profile-finder</name>
 
 	<properties>
