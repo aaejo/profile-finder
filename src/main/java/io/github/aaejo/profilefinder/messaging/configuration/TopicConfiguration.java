@@ -49,4 +49,11 @@ public class TopicConfiguration {
                 .name("faculty.debug")
                 .build();
     }
+
+    @Bean
+    public NewTopic profilesDebugTopic() {
+        return TopicBuilder
+                .name("profiles.debug")
+                .build();
+    }
 }

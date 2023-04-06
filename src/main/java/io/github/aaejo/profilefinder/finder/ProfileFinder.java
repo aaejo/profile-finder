@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.function.Function;
 
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.collections.api.map.primitive.ObjectDoubleMap;
@@ -43,46 +44,68 @@ public class ProfileFinder extends BaseFinder {
         this.stats = ObjectIntHashMap.newMap();
     }
 
-    enum StrategyCondition {
+    enum DepartmentSpecificity {
         DEPARTMENT_SPECIFIC,
         DEPARTMENT_CONTAINS,
-        DEPARTMENT_UNKNOWN,
-        SINGLE_WELL_NAMED,
-        SINGLE_LIST,
-        SINGLE_TABLE
+        DEPARTMENT_UNKNOWN
     }
 
-    enum Strategy {
-        COMMON_TAG, SINGLE_LIST, SINGLE_TABLE, SINGLE_LIST_CAREFUL, SINGLE_TABLE_CAREFUL, SINGLE_WELL_NAMED, SINGLE_WELL_NAMED_CAREFUL
+    enum StrategyCondition {
+        IDEAL_COUNT,
+        IMAGES,
+        SINGLE_WELL_NAMED,
+        SINGLE_LIST,
+        SINGLE_TABLE,
+        WELL_NAMED,
+        VERY_WELL_NAMED, SEPARATORS, RELEVANT_LISTS, DEPARTMENT_SPECIFIC_SUBSECTION
     }
 
     public void findProfiles(Institution institution, final Document facultyPage) {
+        log.info("Extracting profiles from {}", facultyPage.location());
+
         stats.put(institution.name(), 0);
         Element content = drillDownToUniqueMain(facultyPage).get(0);
         boolean hasNextPage = false;
         EnumSet<StrategyCondition> strategyConditions = EnumSet.noneOf(StrategyCondition.class);
-        Strategy strategy = Strategy.COMMON_TAG;
 
         // Check whether this is a department-specific list or a general one
         // If it's a general one, need to take special precautions
         ObjectDoubleMap<DepartmentKeyword> departmentReport = departmentFinder.foundDepartmentSiteDetailed(facultyPage);
         DepartmentKeyword highestDetected = departmentReport.keyValuesView().maxBy(ObjectDoublePair::getTwo).getOne();
-        DepartmentKeyword primary = departmentFinder.getPrimaryDepartment();
+        // DepartmentKeyword lowestDetected = departmentReport.keyValuesView().minBy(ObjectDoublePair::getTwo).getOne();
 
-        // TODO: Might want to check variances rather than absolute highest?
-        if (highestDetected.isPrimary() && departmentReport.get(primary) >= 1.0) {
-            // We're on a department-specific list
-            strategyConditions.add(StrategyCondition.DEPARTMENT_SPECIFIC);
+        DepartmentSpecificity specificity;
+        if (departmentReport.get(highestDetected) < 0.1) {
+            specificity = DepartmentSpecificity.DEPARTMENT_UNKNOWN;
         } else {
-            // We're not
-            if (highestDetected.getWeight() > 0.01) {
-                strategyConditions.add(StrategyCondition.DEPARTMENT_CONTAINS);
+            if (highestDetected.isPrimary()) {
+                if (departmentReport.get(highestDetected) == departmentReport.sum()) { // ie rest are all 0
+                    specificity = DepartmentSpecificity.DEPARTMENT_SPECIFIC;
+                } else if (departmentReport.get(highestDetected) < 1.0) {
+                    specificity = DepartmentSpecificity.DEPARTMENT_UNKNOWN;
+                } else {
+                    specificity = DepartmentSpecificity.DEPARTMENT_SPECIFIC;
+                }
+            } else if (departmentReport.get(highestDetected) < 1.0) {
+                specificity = DepartmentSpecificity.DEPARTMENT_UNKNOWN;
             } else {
-                strategyConditions.add(StrategyCondition.DEPARTMENT_UNKNOWN);
+                if (departmentReport.get(departmentFinder.getPrimaryDepartment()) >= 1.0) {
+                    if (departmentReport.get(highestDetected) >= 1.4) {
+                        specificity = DepartmentSpecificity.DEPARTMENT_CONTAINS;
+                    } else {
+                        specificity = DepartmentSpecificity.DEPARTMENT_SPECIFIC;
+                    }
+                } else {
+                    specificity = DepartmentSpecificity.DEPARTMENT_CONTAINS;
+                }
             }
+        }
 
+        // do {
+        List<Element> sectionContents = new ArrayList<>();
+        if (specificity != DepartmentSpecificity.DEPARTMENT_SPECIFIC) {
             // Look for headers
-            Elements primaryHeadings = content.select(primary.getRelevantHeading());
+            Elements primaryHeadings = content.select(departmentFinder.getPrimaryDepartment().getRelevantHeading());
             Element sectionHeading = null;
             for (Element pHeading : primaryHeadings) {
                 if (pHeading.siblingElements().stream()
@@ -92,7 +115,6 @@ public class ProfileFinder extends BaseFinder {
                 }
             }
             if (sectionHeading != null) {
-                List<Element> sectionContents = new ArrayList<>();
                 // Walk through all sibling elements following sectionHeading until we run out
                 // or hit another heading of the same level
                 for (Element sib : sectionHeading.nextElementSiblings()) {
@@ -103,12 +125,42 @@ public class ProfileFinder extends BaseFinder {
                         break;
                     }
                 }
+                strategyConditions.add(StrategyCondition.DEPARTMENT_SPECIFIC_SUBSECTION);
             }
-
-            // Results will need to be checked for indicators of relevance
         }
 
-        // Look for separators!! (incl <hr>)
+        Elements images = content.getElementsByTag("img");
+        if (!images.isEmpty()) {
+            strategyConditions.add(StrategyCondition.IMAGES);
+        }
+
+        List<Element> veryWellNamedItems = content
+                .select(".contact-card, .person, .profile, .staff-card, .staff-listing")
+                .stream()
+                .distinct()
+                .filter(e -> e.tag().isBlock())
+                .toList();
+
+        if (!veryWellNamedItems.isEmpty()) {
+            strategyConditions.add(StrategyCondition.VERY_WELL_NAMED);
+
+            boolean eachHasExactlyOneImage      = true;
+            boolean eachHasExactlyOneEmailLink  = true;
+            boolean eachHasExactlyOneUniqueLink = true;
+
+            for (Element item : veryWellNamedItems) {
+                eachHasExactlyOneImage &= item.getElementsByTag("img").size() == 1;
+                eachHasExactlyOneEmailLink &= item.select("a[href^=mailto:]").size() == 1;
+                // Sometimes there are multiple links, but they all go to the same page
+                eachHasExactlyOneUniqueLink &= item.select("a[href]:not([href^=mailto:]):not([href^=tel])")
+                                                .eachAttr("abs:href").stream().distinct().count() == 1;
+            }
+
+            if (eachHasExactlyOneImage || eachHasExactlyOneEmailLink || eachHasExactlyOneUniqueLink) {
+                strategyConditions.add(StrategyCondition.IDEAL_COUNT);
+            }
+        }
+
 
         List<Element> wellNamedItems = content
                 .select("[id*=contact], [id*=bio], [id*=person], [id*=staff], [id*=faculty], [id*=instructors], [id*=people], "
@@ -118,37 +170,48 @@ public class ProfileFinder extends BaseFinder {
                 .filter(e -> e.tag().isBlock())
                 .toList();
 
-        if (wellNamedItems.size() == 1) {
-            // If there's only 1, then it's probably a parent of what we want
-            // Maybe let's commonTagStrategy it?
-            strategyConditions.add(StrategyCondition.SINGLE_WELL_NAMED);
-        } else {
-            // Fair chance we found what we need
+        if (!wellNamedItems.isEmpty()) {
+            if (wellNamedItems.size() == 1) {
+                // If there's only 1, then it's probably a parent of what we want
+                // Maybe let's commonTagStrategy it?
+                strategyConditions.add(StrategyCondition.SINGLE_WELL_NAMED);
+            } else if (strategyConditions.contains(StrategyCondition.IMAGES) && wellNamedItems.size() == images.size()) {
+                strategyConditions.add(StrategyCondition.IDEAL_COUNT);
+                strategyConditions.add(StrategyCondition.WELL_NAMED);
+            } else if (strategyConditions.contains(StrategyCondition.IMAGES) && wellNamedItems.size() % images.size() == 0) {
+                // 
+            } else {
+                // Fair chance we found what we need
+            }
         }
 
         Elements unorderedLists = content.getElementsByTag("ul");
-        if (unorderedLists.size() == 1) {
-            if (!StringUtils.containsAnyIgnoreCase(unorderedLists.first().id(), "page", "pagination")
-                    && !StringUtils.containsAnyIgnoreCase(unorderedLists.first().className(), "page", "pagination")) {
-                strategyConditions.add(StrategyCondition.SINGLE_LIST);
-            }
-        } else {
-            List<Element> relevantUnorderedLists = new ArrayList<Element>();
-            for (Element ul : unorderedLists) {
-                if (StringUtils.containsAny(ul.id(), "staff", "faculty", "instructors", "people")
-                        || StringUtils.containsAny(ul.className(), "staff", "faculty", "instructors", "people")) {
-                    relevantUnorderedLists.add(ul);
-                    unorderedLists.remove(ul);
-                } 
-            }
+        if (!unorderedLists.isEmpty()) {
+            if (unorderedLists.size() == 1) {
+                if (!StringUtils.containsAnyIgnoreCase(unorderedLists.first().id(), "page", "pagination")
+                        && !StringUtils.containsAnyIgnoreCase(unorderedLists.first().className(), "page", "pagination")) {
+                    strategyConditions.add(StrategyCondition.SINGLE_LIST);
+                }
+            } else {
+                List<Element> relevantUnorderedLists = new ArrayList<Element>();
+                for (Element ul : unorderedLists) {
+                    if (StringUtils.containsAny(ul.id(), "staff", "faculty", "instructors", "people")
+                            || StringUtils.containsAny(ul.className(), "staff", "faculty", "instructors", "people")) {
+                        relevantUnorderedLists.add(ul);
+                        unorderedLists.remove(ul);
+                    } 
+                }
 
-            if (relevantUnorderedLists.size() == 1) {
-                strategyConditions.add(StrategyCondition.SINGLE_LIST);
-                unorderedLists = (Elements) relevantUnorderedLists;
+                if (!relevantUnorderedLists.isEmpty()) {
+                    if (relevantUnorderedLists.size() == 1) {
+                        strategyConditions.add(StrategyCondition.SINGLE_LIST);
+                    } else {
+                        strategyConditions.add(StrategyCondition.RELEVANT_LISTS);
+                    }
+                    unorderedLists = (Elements) relevantUnorderedLists;
+                }
             }
         }
-
-        Elements orderedLists = content.getElementsByTag("ol");
 
         Elements tables = content.getElementsByTag("table");
         if (tables.size() == 1) {
@@ -158,44 +221,60 @@ public class ProfileFinder extends BaseFinder {
             // ... I dunno?
         }
 
-        if (strategyConditions.contains(StrategyCondition.DEPARTMENT_SPECIFIC)) {
-            if (strategyConditions.contains(StrategyCondition.SINGLE_WELL_NAMED)) {
-                strategy = Strategy.SINGLE_WELL_NAMED;
-            } else if (strategyConditions.contains(StrategyCondition.SINGLE_LIST)) {
-                strategy = Strategy.SINGLE_LIST;
-            } else if (strategyConditions.contains(StrategyCondition.SINGLE_TABLE)) {
-                strategy = Strategy.SINGLE_TABLE;
-            }
+        List<Element> separators = content
+                .select("hr, [class*=spacer], [class*=separator]")
+                .stream()
+                .distinct()
+                .toList();
+
+        List<Element> scope = null;
+        DepartmentSpecificity scopedSpecificity = specificity; // Sometimes our scope will be more specific than the page
+        Function<Element, List<Element>> strategyFunction;
+        
+        if (strategyConditions.contains(StrategyCondition.DEPARTMENT_SPECIFIC_SUBSECTION)) {
+            scope = sectionContents;
+            scopedSpecificity = DepartmentSpecificity.DEPARTMENT_SPECIFIC;
+            strategyFunction = this::subsectionStrategy;
+        } else if (strategyConditions.contains(StrategyCondition.IDEAL_COUNT) 
+                && strategyConditions.contains(StrategyCondition.VERY_WELL_NAMED)) {
+            scope = veryWellNamedItems;
+            strategyFunction = List::of;
+        } else if (strategyConditions.contains(StrategyCondition.IDEAL_COUNT) 
+                && strategyConditions.contains(StrategyCondition.WELL_NAMED)) {
+            scope = wellNamedItems;
+            strategyFunction = List::of;
+        } else if (strategyConditions.contains(StrategyCondition.SINGLE_WELL_NAMED)) {
+            scope = List.of(wellNamedItems.get(0));
+            strategyFunction = this::commonTagStrategy;
+        } else if (strategyConditions.contains(StrategyCondition.SINGLE_LIST)) {
+            scope = List.of(unorderedLists.first());
+            strategyFunction = this::singleListStrategy;
+        } else if (strategyConditions.contains(StrategyCondition.SINGLE_TABLE)) {
+            scope = List.of(tables.first());
+            strategyFunction = this::singleTableStrategy;
+        } else if (strategyConditions.contains(StrategyCondition.SEPARATORS)) {
+            strategyFunction = null;
+        } else if (strategyConditions.contains(StrategyCondition.VERY_WELL_NAMED)) {
+            // If nothing else worked, and we have some very well named items, we'll use them
+            // even if the count doesn't seem ideal?
+            scope = veryWellNamedItems;
+            strategyFunction = List::of;
         } else {
-            if (strategyConditions.contains(StrategyCondition.SINGLE_WELL_NAMED)) {
-                strategy = Strategy.SINGLE_WELL_NAMED_CAREFUL;
-            } else if (strategyConditions.contains(StrategyCondition.SINGLE_LIST)) {
-                strategy = Strategy.SINGLE_LIST_CAREFUL;
-            } else if (strategyConditions.contains(StrategyCondition.SINGLE_TABLE)) {
-                strategy = Strategy.SINGLE_TABLE_CAREFUL;
-            }
+            scope = List.of(content);
+            strategyFunction = this::commonTagStrategy;
         }
 
-        // do {
-            List<Element> facultyListElements = switch (strategy) {
-                case COMMON_TAG -> commonTagStrategy(content);
-                case SINGLE_LIST -> singleListStrategy(unorderedLists.first());
-                case SINGLE_LIST_CAREFUL -> careful(singleListStrategy(unorderedLists.first()));
-                case SINGLE_TABLE -> singleTableStrategy(tables.first());
-                case SINGLE_TABLE_CAREFUL -> careful(singleTableStrategy(tables.first()));
-                case SINGLE_WELL_NAMED -> commonTagStrategy(wellNamedItems.get(0));
-                case SINGLE_WELL_NAMED_CAREFUL -> careful(commonTagStrategy(wellNamedItems.get(0)));
-                default -> throw new IllegalArgumentException("Unexpected value: " + strategy);
-            };
+            List<Element> facultyListElements = applyStrategy(scope, scopedSpecificity, strategyFunction);
             for (Element element : facultyListElements) {
                 if (element.text().split(" ", 2).length < 2
                     && element.selectFirst("a[href]") == null) {
-                    log.debug("Skipping element without text content: {}", element);
+                    log.debug("Skipping element with insufficient text content: {}", element);
                     continue;
                 } 
 
                 Element link = element.selectFirst("a[href]:not([href^=mailto:]):not([href^=tel])");
                 String url = link != null ? link.absUrl("href") : StringUtils.EMPTY;
+                // Since institution.website no longer used in the rest of the pipeline, using it for htmlContent base url
                 Institution newInstitution = new Institution(institution.name(), institution.country(),
                         institution.address(), facultyPage.location());
                 Profile profile = new Profile(element.outerHtml(), url, null, newInstitution);
@@ -204,8 +283,10 @@ public class ProfileFinder extends BaseFinder {
             }
 
             // FIXME: This feels hacky. It's not really, but it feels like it
-            Element nextPageControl = content.selectFirst("a[href]:contains(next)");
-            if (nextPageControl != null) {
+            // Sometimes pagination isn't actually handled at the URL level, it's purely
+            // dynamic. Maybe we need a special method in FinderClient for that.
+            Element nextPageControl = content.selectFirst("a[href^=http]:contains(next)");
+            if (nextPageControl != null && nextPageControl.absUrl("href") != null) {
                 hasNextPage = true;
                 Document nextPage = client.get(nextPageControl.absUrl("href"));
                 content = drillDownToUniqueMain(nextPage).get(0);
@@ -215,9 +296,18 @@ public class ProfileFinder extends BaseFinder {
         // } while (hasNextPage);
     }
 
-    // private Strategy selectStrategy(final Document facultyPage, Element content) {
+    private List<Element> applyStrategy(List<Element> scope, DepartmentSpecificity specificity, Function<Element, List<Element>> strategy) {
+        List<Element> results = new ArrayList<>();
+        for (Element scopeItem : scope) {
+            results.addAll(strategy.apply(scopeItem));
+        }
         
-    // }
+        return switch (specificity) {
+            case DEPARTMENT_SPECIFIC -> results;
+            case DEPARTMENT_CONTAINS -> veryCareful(results);
+            case DEPARTMENT_UNKNOWN  -> careful(results);
+        };
+    }
 
     private List<Element> commonTagStrategy(Element content) {
         Elements contentElements = content.getAllElements();
@@ -265,10 +355,24 @@ public class ProfileFinder extends BaseFinder {
         return new ArrayList<>(table.getElementsByTag("tr"));
     }
 
+    private List<Element> subsectionStrategy(Element element) {
+        return switch (element.tagName()) {
+            case "ul" -> singleListStrategy(element);
+            case "table" -> singleTableStrategy(element);
+            default -> commonTagStrategy(element);
+        };
+    }
+
     private List<Element> careful(List<Element> elements) {
         return elements.stream()
-                .filter(e -> StringUtils.containsAnyIgnoreCase(e.text(), departmentFinder.getImportantDepartmentVariants()))
-                .toList();
+        .filter(e -> StringUtils.containsAnyIgnoreCase(e.text(), departmentFinder.getImportantDepartmentVariants()))
+        .toList();
+    }
+
+    private List<Element> veryCareful(List<Element> elements) {
+        return elements.stream()
+        .filter(e -> StringUtils.containsAnyIgnoreCase(e.text(), departmentFinder.getPrimaryDepartment().getVariants()))
+        .toList();
     }
 
     public int getFoundProfilesCount(String institutionName) {

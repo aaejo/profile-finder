@@ -120,9 +120,10 @@ public class FacultyFinder extends BaseFinder {
             confidence += modifier;
         }
 
-        Elements unorderedLists = content.getElementsByTag("ul");
-        Elements orderedLists = content.getElementsByTag("ol");
         Elements tables = content.getElementsByTag("table");
+        if (!tables.isEmpty()) {
+            confidence += (5 - tables.size()) / 5.0; // 1-4 tables = good, more is increasingly worse 
+        }
 
         boolean anyMatchedKeywords = false;
         for (DepartmentKeyword keyword : departmentFinderProperties.getImportantDepartmentKeywords()) {
@@ -180,6 +181,7 @@ public class FacultyFinder extends BaseFinder {
             throw new FacultyListNotFoundException(institution, best.url(), best.weight());
         }
 
+        log.info("Identified {} as faculty list page with {} confidence", best.url(), best.weight());
         return client.get(best.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
     }
 

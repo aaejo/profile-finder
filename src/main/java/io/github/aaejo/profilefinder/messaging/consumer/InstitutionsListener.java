@@ -96,8 +96,8 @@ public class InstitutionsListener {
             facultyFinder.debugData = null;
 
         // Find profiles from faculty list
-        // profileFinder.findProfiles(institution, page);
-
+        profileFinder.findProfiles(institution, page);
+        debugTemplate.send("profiles.debug", institution.name(), new SimpleDebugData(institution, null, profileFinder.getFoundProfilesCount(institution.name())));
         log.info("{} (likely) profiles found for {}", profileFinder.getFoundProfilesCount(institution.name()),
                 institution.name());
     }

@@ -1,6 +1,7 @@
 package io.github.aaejo.profilefinder.finder;
 
 import java.net.URI;
+import java.util.Arrays;
 import java.util.HashSet;
 
 import org.apache.commons.lang3.StringUtils;
@@ -56,7 +57,7 @@ public class DepartmentFinder extends BaseFinder {
             return ObjectDoubleHashMap.<DepartmentKeyword>newWithKeysValues(DepartmentKeyword.UNDEFINED, -10)
                     .toImmutable();
         }
-        
+
         try {
             int statusCode = page.connection().response().statusCode();
             if (statusCode >= 400) {
@@ -77,21 +78,34 @@ public class DepartmentFinder extends BaseFinder {
         for (DepartmentKeyword keyword : properties.getImportantDepartmentKeywords()) {
             confidence.addToValue(keyword, 0);
 
-            if (StringUtils.containsAnyIgnoreCase(title, keyword.getVariants())) {
-                if (StringUtils.containsAnyIgnoreCase(title, "Department", "School")) {
-                    log.debug("Page title contains \"{}\" and either \"Department\" or \"School\". Very high confidence", keyword.getVariants()[0]);
-                    confidence.addToValue(keyword, 1);
-                } else if (StringUtils.containsIgnoreCase(title, "Degree")) {
-                    log.debug(
-                            "Page title contains \"{}\" and \"Degree\". Confidence reduced, likely found degree info page instead",
-                            keyword.getVariants()[0]);
-                            confidence.addToValue(keyword, -1);
-                } else {
-                    log.debug("Page title contains \"{}\" but no other keywords. Medium confidence added", keyword.getVariants()[0]);
-                    confidence.addToValue(keyword, 0.5);
+            if (StringUtils.containsAnyIgnoreCase(title, keyword.getVariants())
+                    || StringUtils.containsAnyIgnoreCase(location, keyword.getVariants())) {
+                HashSet<String> tokenizedIdentifiers = new HashSet<>();
+                Arrays.stream(location.split("\\W"))
+                        .map(token -> token.toLowerCase())
+                        .forEach(token -> tokenizedIdentifiers.add(token));
+                Arrays.stream(title.split(" "))
+                        .map(token -> token.toLowerCase())
+                        .forEach(token -> tokenizedIdentifiers.add(token));
+
+                for (String token : tokenizedIdentifiers) {
+                    double modifier;
+                    if (StringUtils.equalsAnyIgnoreCase(token, keyword.getVariants())) {
+                        modifier = 0.5;
+                    } else {
+                        modifier = switch (token) {
+                            case "department", "school" -> 0.5;
+                            case "degree"               -> -1.0;
+                            case "calendar"             -> -5.0;
+                            default -> 0.0;
+                        };
+                    }
+
+                    log.debug("{} confidence change based on token {} present in page title or location", modifier, token);
+                    confidence.addToValue(keyword, modifier);
                 }
             }
-            
+
             // Images (w/ alt text) relating to philosophy that links back to same page (ie likely logos)
             Elements relevantImageLinks = page.select(keyword.getRelevantImageLink());
             for (Element imgLink : relevantImageLinks) {
@@ -105,9 +119,9 @@ public class DepartmentFinder extends BaseFinder {
                 * - What about relevant non-link images?
                 * - Should confidences scale based on number of results?
                 */
-                
+
             }
-            
+
             // Relevantly titled text link that leads back to same page
             Elements relevantLinks = page.select(keyword.getRelevantLink());
             for (Element link : relevantLinks) {
@@ -124,7 +138,7 @@ public class DepartmentFinder extends BaseFinder {
                  *    and/or remove confidence for non-returning links. But it can be considered
                  */
             }
-            
+
             // Relevant heading element, scaled by heading size
             Elements relevantHeadings = page.select(keyword.getRelevantHeading());
             for (Element heading : relevantHeadings) {
@@ -138,7 +152,7 @@ public class DepartmentFinder extends BaseFinder {
                     default -> 0;
                 };
                 log.debug("{} confidence added based on relevant {}-level heading", modifier, heading.tagName());
-                confidence.addToValue(keyword, modifier);                
+                confidence.addToValue(keyword, modifier);
             }
         }
 
@@ -176,6 +190,7 @@ public class DepartmentFinder extends BaseFinder {
             if (confidence >= 1.4) {
                 debugData.details = "Templating";
                 debugTemplate.send("department.debug", institution.name(), debugData);
+                log.info("Identified {} as department page with {} confidence", page.location(), confidence);
                 return page;
             }
         }
@@ -206,6 +221,7 @@ public class DepartmentFinder extends BaseFinder {
             if (confidence >= 1.4) {
                 debugData.details = "SiteMap";
                 debugTemplate.send("department.debug", institution.name(), debugData);
+                log.info("Identified {} as department page with {} confidence", target.url(), target.weight());
                 return page;
             }
         }
@@ -245,6 +261,7 @@ public class DepartmentFinder extends BaseFinder {
             throw new DepartmentSiteNotFoundException(institution, best.url(), best.weight());
         }
 
+        log.info("Identified {} as department page with {} confidence", best.url(), best.weight());
         return client.get(best.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
     }
 

@@ -24,10 +24,8 @@ aaejo:
             - "socialscience"
           weight: 0.8
         - variants:
-            - "art"
-          weight: 0.4
-        - variants:
             - "departments"
             - "faculties"
             - "schools"
+            - "art"
           weight: 0.01
