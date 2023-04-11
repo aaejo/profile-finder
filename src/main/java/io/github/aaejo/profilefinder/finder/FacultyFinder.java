@@ -6,7 +6,6 @@ import java.util.HashSet;
 import java.util.List;
 
 import org.apache.commons.lang3.StringUtils;
-import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.jsoup.select.Evaluator;
@@ -16,10 +15,12 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import io.github.aaejo.finder.client.FinderClient;
+import io.github.aaejo.finder.client.FinderClientResponse;
 import io.github.aaejo.messaging.records.Institution;
 import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import io.github.aaejo.profilefinder.finder.configuration.DepartmentFinderProperties;
 import io.github.aaejo.profilefinder.finder.exception.FacultyListNotFoundException;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -34,33 +35,27 @@ public class FacultyFinder extends BaseFinder {
 
     private final DepartmentFinderProperties departmentFinderProperties;
 
-    public FacultyFinder(FinderClient client, DepartmentFinderProperties departmentFinderProperties, CrawlingProperties crawlingProperties) {
-        super(client, crawlingProperties);
+    public FacultyFinder(FinderClient client, DepartmentFinderProperties departmentFinderProperties,
+            CrawlingProperties crawlingProperties, MeterRegistry registry) {
+        super(client, crawlingProperties, registry);
 
         this.departmentFinderProperties = departmentFinderProperties;
     }
 
-    public double foundFacultyList(final Document page) {
+    public double foundFacultyList(final FinderClientResponse page) {
         double confidence = 0;
-        if (page == null) {
-            log.info("0 confidence that faculty list found at null page");
+        if (page == null || page.document() == null) {
+            log.info("Negative confidence that faculty list found at null page");
             return -10;
         }
 
-        try {
-            int statusCode = page.connection().response().statusCode();
-            if (statusCode >= 400) {
-                log.info("0 confidence that faculty list found given HTTP {} status", statusCode);
-                return -10;
-            }
-        } catch (IllegalArgumentException e) {
-            // Protective case when trying to get response details before request has actually been made.
-            // This is effectively only relevant when running from unit tests.
-            log.debug("Cannot get connection response before request has been executed. This should only occur during tests.");
+        if (!page.isSuccess()) {
+            log.info("Negative confidence that faculty list found given HTTP {} status", page.status());
+            return -10;
         }
 
         String location = page.location();
-        String title = page.title();
+        String title = page.document().title();
 
         HashSet<String> tokenizedIdentifiers = new HashSet<>();
         Arrays.stream(location.split("\\W"))
@@ -88,8 +83,10 @@ public class FacultyFinder extends BaseFinder {
             confidence += modifier;
         }
 
-        Element content = drillDownToUniqueMain(page).get(0);
+        Element content = drillDownToUniqueMain(page.document()).get(0);
 
+        // TODO: These should be capped to a max number so that one page doesn't end up way higher than another just by
+        //      having more matches
         confidence += 0.03 * StringUtils.countMatches(content.text().toLowerCase(), "professor");
         confidence += 0.02 * StringUtils.countMatches(content.text().toLowerCase(), "lecturer");
         confidence += 0.01 * StringUtils.countMatches(content.text().toLowerCase(), "prof.");
@@ -141,12 +138,7 @@ public class FacultyFinder extends BaseFinder {
         return confidence;
     }
 
-    public Document findFacultyList(Institution institution, Document inPage) {
-        double confidence = foundFacultyList(inPage);
-        return findFacultyList(institution, inPage, confidence);
-    }
-
-    public Document findFacultyList(Institution institution, Document inPage, double initialConfidence) {
+    public FinderClientResponse findFacultyList(Institution institution, FinderClientResponse inPage, double initialConfidence) {
         CrawlQueue checkedLinks = new CrawlQueue();
         checkedLinks.add(inPage.location(), initialConfidence);
         debugData = new DebugData();
@@ -163,7 +155,7 @@ public class FacultyFinder extends BaseFinder {
                 continue; // Skip if this is a URL that has already been checked
             }
 
-            Document page = client.get(target.url());
+            FinderClientResponse page = client.get(target.url());
 
             double confidence = foundFacultyList(page);
             if (page != null && !target.url().equals(page.location())) {
@@ -181,19 +173,23 @@ public class FacultyFinder extends BaseFinder {
             throw new FacultyListNotFoundException(institution, best.url(), best.weight());
         }
 
+        registry.counter("jds.profile-finder.faculty-finder.found",
+                "country", institution.country(),
+                "mechanism", "crawling")
+                .increment();
         log.info("Identified {} as faculty list page with {} confidence", best.url(), best.weight());
         return client.get(best.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
     }
 
-    private int queueLinksFromPage(CrawlQueue queue, Document page, double pageConfidence, Institution institution) {
-        if (page == null) {
+    private int queueLinksFromPage(CrawlQueue queue, FinderClientResponse page, double pageConfidence, Institution institution) {
+        if (page == null || page.document() == null) {
             return -1;
         }
 
         int count = 0;
 
         String host = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
-        List<Element> contentDrillDown = drillDownToContent(page);
+        List<Element> contentDrillDown = drillDownToContent(page.document());
         for (Element level : contentDrillDown) { // Reminder: Order is deepest to shallowest "main"/"content" element
             // Scale down weight the less drilled down we are. Crawl targets will be left with
             // their highest found weight in the queue because of the logic in CrawlQueue.offer

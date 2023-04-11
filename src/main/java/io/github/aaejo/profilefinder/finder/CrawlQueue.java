@@ -45,7 +45,11 @@ public class CrawlQueue extends PriorityQueue<CrawlTarget> {
     }
 
     public boolean add(String url, double weight) {
-        return add(new CrawlTarget(url, weight));
+        return add(new CrawlTarget(url, weight, null));
+    }
+
+    public boolean add(String url, double weight, SearchState source) {
+        return add(new CrawlTarget(url, weight, source));
     }
 
     public boolean addAll(String[] urls, double weight) {
@@ -69,6 +73,6 @@ public class CrawlQueue extends PriorityQueue<CrawlTarget> {
 
     public boolean contains(String s) {
         // Since CrawlTarget.equals only compares url...
-        return super.contains(new CrawlTarget(s, 0));
+        return super.contains(new CrawlTarget(s, 0, null));
     }
 }
