@@ -1,2 +1,2 @@
 # Ignore the test resource HTML files in repo language stats
-src/test/resources/**.html linguist-vendored
+src/test/resources/**/*.html linguist-vendored
