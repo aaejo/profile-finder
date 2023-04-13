@@ -147,8 +147,46 @@ public class FacultyFinder extends BaseFinder {
 
         CrawlQueue crawlQueue = new CrawlQueue();
         queueLinksFromPage(crawlQueue, inPage, initialConfidence, institution);
+        CrawlQueue secondaryCrawlQueue = new CrawlQueue();
+
+        // 1. Crawl just the links from the department page
 
         CrawlTarget target;
+        while ((target = crawlQueue.poll()) != null) {
+            if (checkedLinks.contains(target)) {
+                log.info("Skipping checked link {}", target.url()); // TODO: make debug later
+                continue; // Skip if this is a URL that has already been checked
+            }
+
+            FinderClientResponse page = client.get(target.url());
+
+            double confidence = foundFacultyList(page);
+            if (page != null && !target.url().equals(page.location())) {
+                // ...
+                checkedLinks.add(page.location(), confidence);
+            }
+            checkedLinks.add(target.url(), confidence);
+            queueLinksFromPage(secondaryCrawlQueue, page, confidence, institution);
+        }
+
+        // Early-exit if found a really good result just from the first batch
+
+        CrawlTarget earlyBest = checkedLinks.peek();
+        if (earlyBest.weight() >= 1.4) {
+            debugData.details = "Early";
+            debugTemplate.send("faculty.debug", institution.name(), debugData);
+            registry.counter("jds.profile-finder.faculty-finder.found",
+                    "country", institution.country(),
+                    "mechanism", "crawling")
+                    .increment();
+            log.info("Identified {} as faculty list page with {} confidence", earlyBest.url(), earlyBest.weight());
+            return client.get(earlyBest.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
+        }
+
+        // 2. Full crawling from there
+
+        crawlQueue = secondaryCrawlQueue;
+        target = null;
         while ((target = crawlQueue.poll()) != null) {
             if (checkedLinks.contains(target)) {
                 log.info("Skipping checked link {}", target.url()); // TODO: make debug later

@@ -3,12 +3,14 @@ aaejo:
     department-finder:
       templates:
         - "%s/philosophy"
+        - "www.%s/philosophy"
         - "philosophy.%s"
         - "%s/department/philosophy"
-        - "%s/dept/philosophy"
+        - "www.%s/department/philosophy"
         - "%s/humanities/philosophy"
+        - "www.%s/humanities/philosophy"
         - "%s/arts/philosophy"
-        - "%s/artsci/philosophy"
+        - "www.%s/arts/philosophy"
       keywords:
         - variants:
             - "philosophy"

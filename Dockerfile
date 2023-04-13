@@ -21,4 +21,5 @@ COPY --from=unpacker /tmp/snapshot-dependencies/ ./
 COPY --from=unpacker /tmp/application/ ./
 ENTRYPOINT ["java", "org.springframework.boot.loader.JarLauncher"]
 
+EXPOSE 8080
 LABEL org.opencontainers.image.source=https://github.com/aaejo/profile-finder

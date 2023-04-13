@@ -316,7 +316,7 @@ public class ProfileFinder extends BaseFinder {
         for (Element scopeItem : scope) {
             results.addAll(strategy.apply(scopeItem));
         }
-        
+
         return switch (specificity) {
             case DEPARTMENT_SPECIFIC -> results;
             case DEPARTMENT_CONTAINS -> veryCareful(results);

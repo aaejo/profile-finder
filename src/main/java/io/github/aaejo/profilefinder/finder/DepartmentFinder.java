@@ -173,13 +173,11 @@ public class DepartmentFinder extends BaseFinder {
 
             double confidence = foundDepartmentSite(page);
 
-            if (page != null) { // FIXME: When the fetch fails with unknown host (philosophy.* case) the page is now not null b/c of new error handling
-                                // but the location is empty, so this adds a empty checked link instead. Not a real problem but annoying in the debug info
+            if (page != null && !templatedUrl.equals(page.location())) {
                 // ...
                 checkedLinks.add(page.location(), confidence, state);
-            } else {
-                checkedLinks.add(templatedUrl, confidence, state);
             }
+            checkedLinks.add(templatedUrl, confidence, state);
 
             if (confidence >= 1.4) {
                 debugData.details = "Templating";
@@ -224,7 +222,7 @@ public class DepartmentFinder extends BaseFinder {
                         "country", institution.country(),
                         "mechanism", "sitemap")
                         .increment();
-                log.info("Identified {} as department page with {} confidence", target.url(), target.weight());
+                log.info("Identified {} as department page with {} confidence", page.location(), confidence);
                 state = SearchState.IDLE;
                 return page;
             }
