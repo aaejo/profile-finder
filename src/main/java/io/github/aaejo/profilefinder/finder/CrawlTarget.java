@@ -5,7 +5,7 @@ import java.util.Comparator;
 /**
  * @author Omri Harary
  */
-public record CrawlTarget(String url, double weight) implements Comparable<CrawlTarget> {
+public record CrawlTarget(String url, double weight, SearchState source) implements Comparable<CrawlTarget> {
 
     @Override
     public int compareTo(CrawlTarget o) {

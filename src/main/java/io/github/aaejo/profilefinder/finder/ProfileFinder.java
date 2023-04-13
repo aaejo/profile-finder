@@ -12,16 +12,18 @@ import org.apache.commons.lang3.StringUtils;
 import org.eclipse.collections.api.map.primitive.ObjectDoubleMap;
 import org.eclipse.collections.api.tuple.primitive.ObjectDoublePair;
 import org.eclipse.collections.impl.map.mutable.primitive.ObjectIntHashMap;
-import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 
 import io.github.aaejo.finder.client.FinderClient;
+import io.github.aaejo.finder.client.FinderClientResponse;
 import io.github.aaejo.messaging.records.Institution;
 import io.github.aaejo.messaging.records.Profile;
 import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
+import io.github.aaejo.profilefinder.finder.exception.NoProfilesFoundException;
 import io.github.aaejo.profilefinder.messaging.producer.ProfilesProducer;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -33,15 +35,12 @@ public class ProfileFinder extends BaseFinder {
 
     private final ProfilesProducer profilesProducer;
     private final DepartmentFinder departmentFinder;
-    private final ObjectIntHashMap<String> stats;
 
     public ProfileFinder(ProfilesProducer profilesProducer, DepartmentFinder departmentFinder, FinderClient client,
-            CrawlingProperties properties) {
-        super(client, properties);
+            CrawlingProperties properties, MeterRegistry registry) {
+        super(client, properties, registry);
         this.profilesProducer = profilesProducer;
         this.departmentFinder = departmentFinder;
-
-        this.stats = ObjectIntHashMap.newMap();
     }
 
     enum DepartmentSpecificity {
@@ -60,11 +59,11 @@ public class ProfileFinder extends BaseFinder {
         VERY_WELL_NAMED, SEPARATORS, RELEVANT_LISTS, DEPARTMENT_SPECIFIC_SUBSECTION
     }
 
-    public void findProfiles(Institution institution, final Document facultyPage) {
+    public void findProfiles(Institution institution, final FinderClientResponse facultyPage) {
         log.info("Extracting profiles from {}", facultyPage.location());
+        int count = 0;
 
-        stats.put(institution.name(), 0);
-        Element content = drillDownToUniqueMain(facultyPage).get(0);
+        Element content = drillDownToUniqueMain(facultyPage.document()).get(0);
         boolean hasNextPage = false;
         EnumSet<StrategyCondition> strategyConditions = EnumSet.noneOf(StrategyCondition.class);
 
@@ -196,7 +195,8 @@ public class ProfileFinder extends BaseFinder {
                     }
                 } else {
                     List<Element> relevantUnorderedLists = new ArrayList<Element>();
-                    for (Element ul : unorderedLists) {
+                    for (int i = 0; i < unorderedLists.size(); i++) {
+                        Element ul = unorderedLists.get(i);
                         if (StringUtils.containsAny(ul.id(), "staff", "faculty", "instructors", "people")
                                 || StringUtils.containsAny(ul.className(), "staff", "faculty", "instructors",
                                         "people")) {
@@ -211,7 +211,7 @@ public class ProfileFinder extends BaseFinder {
                         } else {
                             strategyConditions.add(StrategyCondition.RELEVANT_LISTS);
                         }
-                        unorderedLists = (Elements) relevantUnorderedLists;
+                        unorderedLists = new Elements(relevantUnorderedLists);
                     }
                 }
             }
@@ -260,14 +260,16 @@ public class ProfileFinder extends BaseFinder {
                 strategyFunction = null;
             } else if (strategyConditions.contains(StrategyCondition.VERY_WELL_NAMED)) {
                 // If nothing else worked, and we have some very well named items, we'll use
-                // them
-                // even if the count doesn't seem ideal?
+                // them even if the count doesn't seem ideal?
                 scope = veryWellNamedItems;
                 strategyFunction = List::of;
             } else {
                 scope = List.of(content);
                 strategyFunction = this::commonTagStrategy;
             }
+
+            // Would be nice to have a count of strategy choices being made, but might take some work
+            // Especially with the recursive cases like subsection
 
             List<Element> facultyListElements = applyStrategy(scope, scopedSpecificity, strategyFunction);
             for (Element element : facultyListElements) {
@@ -284,7 +286,11 @@ public class ProfileFinder extends BaseFinder {
                         institution.address(), facultyPage.location());
                 Profile profile = new Profile(element.outerHtml(), url, null, newInstitution);
                 profilesProducer.send(profile);
-                stats.addToValue(institution.name(), 1);
+                registry.counter("jds.profile-finder.profile-finder.found",
+                        "country", institution.country(),
+                        "institution", institution.name())
+                        .increment();
+                count++;
             }
 
             // FIXME: This feels hacky. It's not really, but it feels like it
@@ -293,12 +299,16 @@ public class ProfileFinder extends BaseFinder {
             Element nextPageControl = content.selectFirst("a[href^=http]:contains(next)");
             if (nextPageControl != null && nextPageControl.absUrl("href") != null) {
                 hasNextPage = true;
-                Document nextPage = client.get(nextPageControl.absUrl("href"));
-                content = drillDownToUniqueMain(nextPage).get(0);
+                FinderClientResponse nextPage = client.get(nextPageControl.absUrl("href"));
+                content = drillDownToUniqueMain(nextPage.document()).get(0);
             } else {
                 hasNextPage = false;
             }
         } while (hasNextPage);
+
+        if (count == 0) {
+            throw new NoProfilesFoundException(institution, facultyPage.location());
+        }
     }
 
     private List<Element> applyStrategy(List<Element> scope, DepartmentSpecificity specificity, Function<Element, List<Element>> strategy) {
@@ -306,7 +316,7 @@ public class ProfileFinder extends BaseFinder {
         for (Element scopeItem : scope) {
             results.addAll(strategy.apply(scopeItem));
         }
-        
+
         return switch (specificity) {
             case DEPARTMENT_SPECIFIC -> results;
             case DEPARTMENT_CONTAINS -> veryCareful(results);
@@ -380,11 +390,10 @@ public class ProfileFinder extends BaseFinder {
         .toList();
     }
 
-    public int getFoundProfilesCount(String institutionName) {
-        return stats.get(institutionName);
-    }
-
     public int getFoundProfilesCount(Institution institution) {
-        return stats.get(institution.name());
+        return (int) registry.counter("jds.profile-finder.profile-finder.found",
+                "country", institution.country(),
+                "institution", institution.name())
+                .count();
     }
 }

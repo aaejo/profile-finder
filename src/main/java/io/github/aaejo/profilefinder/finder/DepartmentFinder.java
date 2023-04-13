@@ -7,7 +7,6 @@ import java.util.HashSet;
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.collections.api.map.primitive.ImmutableObjectDoubleMap;
 import org.eclipse.collections.impl.map.mutable.primitive.ObjectDoubleHashMap;
-import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,10 +14,12 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import io.github.aaejo.finder.client.FinderClient;
+import io.github.aaejo.finder.client.FinderClientResponse;
 import io.github.aaejo.messaging.records.Institution;
 import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import io.github.aaejo.profilefinder.finder.configuration.DepartmentFinderProperties;
 import io.github.aaejo.profilefinder.finder.exception.DepartmentSiteNotFoundException;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -33,12 +34,13 @@ public class DepartmentFinder extends BaseFinder {
 
     private final DepartmentFinderProperties properties;
 
-    public DepartmentFinder(FinderClient client, DepartmentFinderProperties properties, CrawlingProperties crawlingProperties) {
-        super(client, crawlingProperties);
+    public DepartmentFinder(FinderClient client, DepartmentFinderProperties properties,
+            CrawlingProperties crawlingProperties, MeterRegistry registry) {
+        super(client, crawlingProperties, registry);
         this.properties = properties;
     }
 
-    public double foundDepartmentSite(final Document page) {
+    public double foundDepartmentSite(final FinderClientResponse page) {
         ImmutableObjectDoubleMap<DepartmentKeyword> report = foundDepartmentSiteDetailed(page);
         if (report.size() == 1 && report.containsKey(DepartmentKeyword.UNDEFINED)) {
             return report.get(DepartmentKeyword.UNDEFINED);
@@ -51,29 +53,22 @@ public class DepartmentFinder extends BaseFinder {
         return confidence;
     }
 
-    public ImmutableObjectDoubleMap<DepartmentKeyword> foundDepartmentSiteDetailed(final Document page) {
-        if (page == null) {
+    public ImmutableObjectDoubleMap<DepartmentKeyword> foundDepartmentSiteDetailed(final FinderClientResponse page) {
+        if (page == null || page.document() == null) {
             log.info("Negative confidence that department site found at null page");
             return ObjectDoubleHashMap.<DepartmentKeyword>newWithKeysValues(DepartmentKeyword.UNDEFINED, -10)
                     .toImmutable();
         }
 
-        try {
-            int statusCode = page.connection().response().statusCode();
-            if (statusCode >= 400) {
-                log.info("Negative confidence that department site found given HTTP {} status", statusCode);
-                return ObjectDoubleHashMap.<DepartmentKeyword>newWithKeysValues(DepartmentKeyword.UNDEFINED, -10)
-                        .toImmutable();
-            }
-        } catch (IllegalArgumentException e) {
-            // Protective case when trying to get response details before request has actually been made.
-            // This is relevant when running from tests or using the Selenium FinderClient strategy.
-            log.debug("Cannot get connection response when Jsoup was not used to make the request.");
+        if (!page.isSuccess()) {
+            log.info("Negative confidence that department site found given HTTP {} status", page.status());
+            return ObjectDoubleHashMap.<DepartmentKeyword>newWithKeysValues(DepartmentKeyword.UNDEFINED, -10)
+                    .toImmutable();
         }
 
         ObjectDoubleHashMap<DepartmentKeyword> confidence = ObjectDoubleHashMap.newMap();
         String location = page.location();
-        String title = page.title();
+        String title = page.document().title();
 
         for (DepartmentKeyword keyword : properties.getImportantDepartmentKeywords()) {
             confidence.addToValue(keyword, 0);
@@ -107,7 +102,7 @@ public class DepartmentFinder extends BaseFinder {
             }
 
             // Images (w/ alt text) relating to philosophy that links back to same page (ie likely logos)
-            Elements relevantImageLinks = page.select(keyword.getRelevantImageLink());
+            Elements relevantImageLinks = page.document().select(keyword.getRelevantImageLink());
             for (Element imgLink : relevantImageLinks) {
                 if (imgLink.parent().absUrl("href").equals(location)) {
                     log.debug("Found relevant image linking back to same page. High confidence added");
@@ -123,7 +118,7 @@ public class DepartmentFinder extends BaseFinder {
             }
 
             // Relevantly titled text link that leads back to same page
-            Elements relevantLinks = page.select(keyword.getRelevantLink());
+            Elements relevantLinks = page.document().select(keyword.getRelevantLink());
             for (Element link : relevantLinks) {
                 if (link.absUrl("href").equals(location)) {
                     log.debug("Found relevant link back to same page. High confidence added");
@@ -140,7 +135,7 @@ public class DepartmentFinder extends BaseFinder {
             }
 
             // Relevant heading element, scaled by heading size
-            Elements relevantHeadings = page.select(keyword.getRelevantHeading());
+            Elements relevantHeadings = page.document().select(keyword.getRelevantHeading());
             for (Element heading : relevantHeadings) {
                 double modifier = switch (heading.tagName()) {
                     case "h1" -> 0.85;
@@ -159,12 +154,7 @@ public class DepartmentFinder extends BaseFinder {
         return confidence.toImmutable();
     }
 
-    public Document findDepartmentSite(Institution institution, Document inPage) {
-        double confidence = foundDepartmentSite(inPage);
-        return findDepartmentSite(institution, inPage, confidence);
-    }
-
-    public Document findDepartmentSite(Institution institution, Document inPage, double initialConfidence) {
+    public FinderClientResponse findDepartmentSite(Institution institution, FinderClientResponse inPage, double initialConfidence) {
         CrawlQueue checkedLinks = new CrawlQueue();
         checkedLinks.add(inPage.location(), initialConfidence);
         debugData = new DebugData();
@@ -172,56 +162,68 @@ public class DepartmentFinder extends BaseFinder {
         debugData.checkedLinks = checkedLinks;
 
         // 1. Try some basics
-        String hostname = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
+        state = SearchState.TEMPLATE;
+        URI institutionUri = URI.create(institution.website());
+        String hostname = StringUtils.removeStart(institutionUri.getHost(), "www.");
+        String scheme = institutionUri.getScheme();
 
         for (String template : properties.getTemplates()) {
-            String templatedUrl = String.format(template, hostname);
-            Document page = client.get(templatedUrl);
+            String templatedUrl = scheme + "://" + String.format(template, hostname);
+            FinderClientResponse page = client.get(templatedUrl);
 
             double confidence = foundDepartmentSite(page);
 
-            if (page != null) {
+            if (page != null && !templatedUrl.equals(page.location())) {
                 // ...
-                checkedLinks.add(page.location(), confidence);
-            } else {
-                checkedLinks.add(templatedUrl, confidence);
+                checkedLinks.add(page.location(), confidence, state);
             }
+            checkedLinks.add(templatedUrl, confidence, state);
 
             if (confidence >= 1.4) {
                 debugData.details = "Templating";
                 debugTemplate.send("department.debug", institution.name(), debugData);
+                registry.counter("jds.profile-finder.department-finder.found",
+                        "country", institution.country(),
+                        "mechanism", "templating")
+                        .increment();
                 log.info("Identified {} as department page with {} confidence", page.location(), confidence);
+                state = SearchState.IDLE;
                 return page;
             }
         }
 
+        state = SearchState.SITEMAP;
         HashSet<String> flatSiteMap = client.getSiteMapURLs(inPage.location());
-        String host = StringUtils.removeStart(URI.create(institution.website()).getHost(), "www.");
         CrawlQueue crawlQueue = new CrawlQueue();
 
         for (String url : flatSiteMap) {
             for (DepartmentKeyword keyword : properties.getKeywords()) {
-                if (StringUtils.containsAnyIgnoreCase(url, keyword.getVariants())) {
-                    tryAddLink(crawlQueue, host, keyword.getWeight(), url);
+                if (keyword.getVariantsRegex().matcher(url).find()) {
+                    tryAddLink(crawlQueue, hostname, keyword.getWeight(), url);
                 }
             }
         }
 
         CrawlTarget target;
         while ((target = crawlQueue.poll()) != null) {
-            Document page = client.get(target.url());
+            FinderClientResponse page = client.get(target.url());
 
             double confidence = foundDepartmentSite(page);
 
             if (page != null && !target.url().equals(page.location())) {
                 // ...
-                checkedLinks.add(page.location(), confidence);
+                checkedLinks.add(page.location(), confidence, state);
             }
-            checkedLinks.add(target.url(), confidence);
+            checkedLinks.add(target.url(), confidence, state);
             if (confidence >= 1.4) {
                 debugData.details = "SiteMap";
                 debugTemplate.send("department.debug", institution.name(), debugData);
-                log.info("Identified {} as department page with {} confidence", target.url(), target.weight());
+                registry.counter("jds.profile-finder.department-finder.found",
+                        "country", institution.country(),
+                        "mechanism", "sitemap")
+                        .increment();
+                log.info("Identified {} as department page with {} confidence", page.location(), confidence);
+                state = SearchState.IDLE;
                 return page;
             }
         }
@@ -231,6 +233,7 @@ public class DepartmentFinder extends BaseFinder {
 
         // 2.1 Specialized crawling
 
+        state = SearchState.CRAWL;
         queueLinksFromPage(crawlQueue, inPage, initialConfidence, institution); // (*1)
 
         target = null;
@@ -240,14 +243,14 @@ public class DepartmentFinder extends BaseFinder {
                 continue; // Skip if this is a URL that has already been checked
             }
 
-            Document page = client.get(target.url());
+            FinderClientResponse page = client.get(target.url());
 
             double confidence = foundDepartmentSite(page);
             if (page != null && !target.url().equals(page.location())) {
                 // ...
-                checkedLinks.add(page.location(), confidence);
+                checkedLinks.add(page.location(), confidence, state);
             }
-            checkedLinks.add(target.url(), confidence);
+            checkedLinks.add(target.url(), confidence, state);
             queueLinksFromPage(crawlQueue, page, confidence, institution);
         }
 
@@ -257,10 +260,15 @@ public class DepartmentFinder extends BaseFinder {
 
         debugData.details = "Crawling";
         debugTemplate.send("department.debug", institution.name(), debugData);
+        state = SearchState.IDLE;
         if (best.weight() < 1) {
             throw new DepartmentSiteNotFoundException(institution, best.url(), best.weight());
         }
 
+        registry.counter("jds.profile-finder.department-finder.found",
+                "country", institution.country(),
+                "mechanism", "crawling")
+                .increment();
         log.info("Identified {} as department page with {} confidence", best.url(), best.weight());
         return client.get(best.url()); // FIXME: This isn't great. What happens if we fail to get it this time?
     }
@@ -273,8 +281,8 @@ public class DepartmentFinder extends BaseFinder {
         return properties.getImportantDepartmentVariants();
     }
 
-    private int queueLinksFromPage(CrawlQueue queue, Document page, double pageConfidence, Institution institution) {
-        if (page == null) {
+    private int queueLinksFromPage(CrawlQueue queue, FinderClientResponse page, double pageConfidence, Institution institution) {
+        if (page == null || page.document() == null) {
             return -1;
         }
 
@@ -284,7 +292,7 @@ public class DepartmentFinder extends BaseFinder {
             // Scale target's weight in queue by keyword weight and page confidence. Crawl targets will be left with
             // their highest found weight in the queue because of the logic in CrawlQueue.offer
             double weight = pageConfidence * keyword.getWeight();
-            Elements possibleLinks = page.select(keyword.getRelevantLink());
+            Elements possibleLinks = page.document().select(keyword.getRelevantLink());
             count += tryAddLinks(queue, host, weight, possibleLinks);
         }
 

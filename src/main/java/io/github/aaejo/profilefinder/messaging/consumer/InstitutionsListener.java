@@ -3,7 +3,6 @@ package io.github.aaejo.profilefinder.messaging.consumer;
 import java.util.Locale;
 
 import org.apache.commons.lang3.StringUtils;
-import org.jsoup.nodes.Document;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -11,6 +10,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 import io.github.aaejo.finder.client.FinderClient;
+import io.github.aaejo.finder.client.FinderClientResponse;
 import io.github.aaejo.messaging.records.Institution;
 import io.github.aaejo.profilefinder.finder.DepartmentFinder;
 import io.github.aaejo.profilefinder.finder.FacultyFinder;
@@ -50,14 +50,17 @@ public class InstitutionsListener {
 
         // Allow ignoring robots.txt rules on this one, because it's the initial page load.
         // This will either be the institution home page, or one that has been manually identified for use.
-        Document page = client.get(institution.website(), false);
+        FinderClientResponse page = client.get(institution.website(), false);
 
         if (page == null) {
             log.error("Failed to load site for {}", institution.name());
             throw new InitialFetchFailedException(institution);
+        } else if (!page.isSuccess()) {
+            log.error("Failed to load site for {}", institution.name());
+            throw new InitialFetchFailedException(institution, page);
         }
 
-        Locale siteLocale = Locale.forLanguageTag(page.getElementsByTag("html").first().attr("lang"));
+        Locale siteLocale = Locale.forLanguageTag(page.document().getElementsByTag("html").first().attr("lang"));
         if (StringUtils.isNotBlank(siteLocale.getLanguage()) // Despite being required, sometimes a locale isn't set
                                                              // however we are only targeting primarily English-speaking
                                                              // countries and as such will assume an unset language
@@ -97,8 +100,9 @@ public class InstitutionsListener {
 
         // Find profiles from faculty list
         profileFinder.findProfiles(institution, page);
-        debugTemplate.send("profiles.debug", institution.name(), new SimpleDebugData(institution, null, profileFinder.getFoundProfilesCount(institution.name())));
-        log.info("{} (likely) profiles found for {}", profileFinder.getFoundProfilesCount(institution.name()),
+        // TODO: Move this and the log after into ProfileFinder instead
+        debugTemplate.send("profiles.debug", institution.name(), new SimpleDebugData(institution, page.location(), profileFinder.getFoundProfilesCount(institution)));
+        log.info("{} (likely) profiles found for {}", profileFinder.getFoundProfilesCount(institution),
                 institution.name());
     }
 

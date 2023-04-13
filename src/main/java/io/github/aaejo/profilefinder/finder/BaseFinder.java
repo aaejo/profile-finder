@@ -11,6 +11,7 @@ import org.jsoup.select.Elements;
 
 import io.github.aaejo.finder.client.FinderClient;
 import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -20,13 +21,17 @@ import lombok.extern.slf4j.Slf4j;
 public abstract class BaseFinder {
 
     public DebugData debugData;
+    protected SearchState state;
 
     protected final FinderClient client;
     protected final CrawlingProperties crawlingProperties;
+    protected final MeterRegistry registry;
 
-    public BaseFinder(FinderClient client, CrawlingProperties crawlingProperties) {
+    public BaseFinder(FinderClient client, CrawlingProperties crawlingProperties, MeterRegistry registry) {
         this.client = client;
         this.crawlingProperties = crawlingProperties;
+        this.registry = registry;
+        this.state = SearchState.IDLE;
     }
 
     protected List<Element> drillDownToUniqueMain(Document page) {
@@ -133,7 +138,7 @@ public abstract class BaseFinder {
             }
         }
 
-        if (StringUtils.endsWithAny(url, ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx")) {
+        if (StringUtils.endsWithAny(url, ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".jpg", ".png")) {
             log.debug("Skipping link to downloadable document {}", url);
             return false;
         }

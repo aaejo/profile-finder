@@ -9,6 +9,7 @@ import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 
 import io.github.aaejo.profilefinder.finder.exception.InstitutionLocaleInvalidException;
+import io.github.aaejo.profilefinder.finder.exception.NoProfilesFoundException;
 
 /**
  * @author Omri Harary
@@ -24,6 +25,7 @@ public class ConsumerConfiguration {
                 new FixedBackOff(2000L, 1L));
         // Do not retry when the institution language cannot be handled
         handler.addNotRetryableExceptions(InstitutionLocaleInvalidException.class);
+        handler.addNotRetryableExceptions(NoProfilesFoundException.class);
 
         return handler;
     }

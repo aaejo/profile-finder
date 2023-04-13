@@ -2,13 +2,15 @@ aaejo:
   jds:
     department-finder:
       templates:
-        - "https://%s/philosophy"
-        - "https://philosophy.%s"
-        - "https://%s/department/philosophy"
-        - "https://%s/dept/philosophy"
-        - "https://%s/humanities/philosophy"
-        - "https://%s/arts/philosophy"
-        - "https://%s/artsci/philosophy"
+        - "%s/philosophy"
+        - "www.%s/philosophy"
+        - "philosophy.%s"
+        - "%s/department/philosophy"
+        - "www.%s/department/philosophy"
+        - "%s/humanities/philosophy"
+        - "www.%s/humanities/philosophy"
+        - "%s/arts/philosophy"
+        - "www.%s/arts/philosophy"
       keywords:
         - variants:
             - "philosophy"
@@ -27,5 +29,11 @@ aaejo:
             - "departments"
             - "faculties"
             - "schools"
+            - "school of"
+            - "school-of"
+            - "schoolof"
+            - "college of"
+            - "college-of"
+            - "collegeof"
             - "art"
           weight: 0.01
