@@ -10,6 +10,8 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.jsoup.select.Evaluator;
 import org.jsoup.select.QueryParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
@@ -21,14 +23,13 @@ import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import io.github.aaejo.profilefinder.finder.configuration.DepartmentFinderProperties;
 import io.github.aaejo.profilefinder.finder.exception.FacultyListNotFoundException;
 import io.micrometer.core.instrument.MeterRegistry;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * @author Omri Harary
  */
-@Slf4j
 @Service
 public class FacultyFinder extends BaseFinder {
+    private static final Logger log = LoggerFactory.getLogger(FacultyFinder.class);
 
     @Autowired
     private KafkaTemplate<String, DebugData> debugTemplate;

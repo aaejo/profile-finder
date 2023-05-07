@@ -2,20 +2,20 @@ package io.github.aaejo.profilefinder.messaging.producer;
 
 import java.util.concurrent.CompletableFuture;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Component;
 
 import io.github.aaejo.messaging.records.Profile;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * @author Omri Harary
  */
-@Slf4j
 @Component
 public class ProfilesProducer {
-
+    private static final Logger log = LoggerFactory.getLogger(ProfilesProducer.class);
     private static final String TOPIC = "profiles";
 
     private final KafkaTemplate<String, Profile> template;

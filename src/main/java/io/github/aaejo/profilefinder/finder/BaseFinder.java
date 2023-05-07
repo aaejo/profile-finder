@@ -8,17 +8,18 @@ import org.apache.commons.lang3.StringUtils;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import io.github.aaejo.finder.client.FinderClient;
 import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import io.micrometer.core.instrument.MeterRegistry;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * @author Omri Harary
  */
-@Slf4j
 public abstract class BaseFinder {
+    private static final Logger log = LoggerFactory.getLogger(BaseFinder.class);
 
     public DebugData debugData;
     protected SearchState state;

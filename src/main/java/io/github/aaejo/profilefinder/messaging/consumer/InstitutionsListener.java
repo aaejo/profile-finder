@@ -3,6 +3,8 @@ package io.github.aaejo.profilefinder.messaging.consumer;
 import java.util.Locale;
 
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -18,15 +20,14 @@ import io.github.aaejo.profilefinder.finder.FacultyFinder;
 import io.github.aaejo.profilefinder.finder.ProfileFinder;
 import io.github.aaejo.profilefinder.finder.exception.InitialFetchFailedException;
 import io.github.aaejo.profilefinder.finder.exception.InstitutionLocaleInvalidException;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * @author Omri Harary
  */
-@Slf4j
 @Component
 @KafkaListener(id = "profile-finder", topics = "institutions")
 public class InstitutionsListener {
+    private static final Logger log = LoggerFactory.getLogger(InstitutionsListener.class);
 
     @Autowired
     KafkaTemplate<String, SimpleDebugData> debugTemplate;

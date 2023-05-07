@@ -14,6 +14,8 @@ import org.eclipse.collections.api.tuple.primitive.ObjectDoublePair;
 import org.eclipse.collections.impl.map.mutable.primitive.ObjectIntHashMap;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import io.github.aaejo.finder.client.FinderClient;
@@ -24,14 +26,13 @@ import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import io.github.aaejo.profilefinder.finder.exception.NoProfilesFoundException;
 import io.github.aaejo.profilefinder.messaging.producer.ProfilesProducer;
 import io.micrometer.core.instrument.MeterRegistry;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * @author Omri Harary
  */
-@Slf4j
 @Service
 public class ProfileFinder extends BaseFinder {
+    private static final Logger log = LoggerFactory.getLogger(ProfileFinder.class);
 
     private final ProfilesProducer profilesProducer;
     private final DepartmentFinder departmentFinder;

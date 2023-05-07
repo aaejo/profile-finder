@@ -9,6 +9,8 @@ import org.eclipse.collections.api.map.primitive.ImmutableObjectDoubleMap;
 import org.eclipse.collections.impl.map.mutable.primitive.ObjectDoubleHashMap;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
@@ -20,14 +22,13 @@ import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import io.github.aaejo.profilefinder.finder.configuration.DepartmentFinderProperties;
 import io.github.aaejo.profilefinder.finder.exception.DepartmentSiteNotFoundException;
 import io.micrometer.core.instrument.MeterRegistry;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * @author Omri Harary
  */
-@Slf4j
 @Service
 public class DepartmentFinder extends BaseFinder {
+    private static final Logger log = LoggerFactory.getLogger(DepartmentFinder.class);
 
     @Autowired
     private KafkaTemplate<String, DebugData> debugTemplate;
