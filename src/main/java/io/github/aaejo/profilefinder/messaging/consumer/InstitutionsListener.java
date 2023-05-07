@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 import io.github.aaejo.finder.client.FinderClient;
@@ -44,7 +45,7 @@ public class InstitutionsListener {
     }
 
     @KafkaHandler
-    public void handle(Institution institution) {
+    public void handle(Institution institution, Acknowledgment ack) {
         log.info("Processing {} ({})", institution.name(), institution.country());
         log.debug(institution.toString());
 
@@ -71,6 +72,8 @@ public class InstitutionsListener {
                     siteLocale.getDisplayLanguage());
             throw new InstitutionLocaleInvalidException(institution, siteLocale);
         }
+
+        ack.acknowledge();
 
         double foundFacultyList = facultyFinder.foundFacultyList(page);
         if (foundFacultyList < 1.4) { // Some institutions may already have the faculty page identified
