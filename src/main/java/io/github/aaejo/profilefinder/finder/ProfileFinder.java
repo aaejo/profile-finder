@@ -65,6 +65,7 @@ public class ProfileFinder extends BaseFinder {
         int count = 0;
 
         Element content = drillDownToUniqueMain(facultyPage.document()).get(0);
+        String location = facultyPage.location();
         boolean hasNextPage = false;
         EnumSet<StrategyCondition> strategyConditions = EnumSet.noneOf(StrategyCondition.class);
 
@@ -299,9 +300,17 @@ public class ProfileFinder extends BaseFinder {
             // dynamic. Maybe we need a special method in FinderClient for that.
             Element nextPageControl = content.selectFirst("a[href^=http]:contains(next)");
             if (nextPageControl != null && nextPageControl.absUrl("href") != null) {
-                hasNextPage = true;
                 FinderClientResponse nextPage = client.get(nextPageControl.absUrl("href"));
-                content = drillDownToUniqueMain(nextPage.document()).get(0);
+
+                if (nextPage.isSuccess() && !nextPage.location().equals(location)) {
+                    // Successfully got next page and it's actually a different page
+                    content = drillDownToUniqueMain(nextPage.document()).get(0);
+                    location = nextPage.location();
+                    hasNextPage = true;
+                } else {
+                    // Failed to get next page or it's not actually a new page (ie would lead to looping)
+                    hasNextPage = false;
+                }
             } else {
                 hasNextPage = false;
             }
