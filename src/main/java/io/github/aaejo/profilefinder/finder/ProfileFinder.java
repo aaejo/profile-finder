@@ -14,6 +14,8 @@ import org.eclipse.collections.api.tuple.primitive.ObjectDoublePair;
 import org.eclipse.collections.impl.map.mutable.primitive.ObjectIntHashMap;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import io.github.aaejo.finder.client.FinderClient;
@@ -24,14 +26,13 @@ import io.github.aaejo.profilefinder.finder.configuration.CrawlingProperties;
 import io.github.aaejo.profilefinder.finder.exception.NoProfilesFoundException;
 import io.github.aaejo.profilefinder.messaging.producer.ProfilesProducer;
 import io.micrometer.core.instrument.MeterRegistry;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * @author Omri Harary
  */
-@Slf4j
 @Service
 public class ProfileFinder extends BaseFinder {
+    private static final Logger log = LoggerFactory.getLogger(ProfileFinder.class);
 
     private final ProfilesProducer profilesProducer;
     private final DepartmentFinder departmentFinder;
@@ -64,6 +65,7 @@ public class ProfileFinder extends BaseFinder {
         int count = 0;
 
         Element content = drillDownToUniqueMain(facultyPage.document()).get(0);
+        String location = facultyPage.location();
         boolean hasNextPage = false;
         EnumSet<StrategyCondition> strategyConditions = EnumSet.noneOf(StrategyCondition.class);
 
@@ -298,9 +300,17 @@ public class ProfileFinder extends BaseFinder {
             // dynamic. Maybe we need a special method in FinderClient for that.
             Element nextPageControl = content.selectFirst("a[href^=http]:contains(next)");
             if (nextPageControl != null && nextPageControl.absUrl("href") != null) {
-                hasNextPage = true;
                 FinderClientResponse nextPage = client.get(nextPageControl.absUrl("href"));
-                content = drillDownToUniqueMain(nextPage.document()).get(0);
+
+                if (nextPage.isSuccess() && !nextPage.location().equals(location)) {
+                    // Successfully got next page and it's actually a different page
+                    content = drillDownToUniqueMain(nextPage.document()).get(0);
+                    location = nextPage.location();
+                    hasNextPage = true;
+                } else {
+                    // Failed to get next page or it's not actually a new page (ie would lead to looping)
+                    hasNextPage = false;
+                }
             } else {
                 hasNextPage = false;
             }

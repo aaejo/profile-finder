@@ -3,10 +3,13 @@ package io.github.aaejo.profilefinder.messaging.consumer;
 import java.util.Locale;
 
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaHandler;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 import io.github.aaejo.finder.client.FinderClient;
@@ -17,15 +20,14 @@ import io.github.aaejo.profilefinder.finder.FacultyFinder;
 import io.github.aaejo.profilefinder.finder.ProfileFinder;
 import io.github.aaejo.profilefinder.finder.exception.InitialFetchFailedException;
 import io.github.aaejo.profilefinder.finder.exception.InstitutionLocaleInvalidException;
-import lombok.extern.slf4j.Slf4j;
 
 /**
  * @author Omri Harary
  */
-@Slf4j
 @Component
 @KafkaListener(id = "profile-finder", topics = "institutions")
 public class InstitutionsListener {
+    private static final Logger log = LoggerFactory.getLogger(InstitutionsListener.class);
 
     @Autowired
     KafkaTemplate<String, SimpleDebugData> debugTemplate;
@@ -44,7 +46,7 @@ public class InstitutionsListener {
     }
 
     @KafkaHandler
-    public void handle(Institution institution) {
+    public void handle(Institution institution, Acknowledgment ack) {
         log.info("Processing {} ({})", institution.name(), institution.country());
         log.debug(institution.toString());
 
@@ -71,6 +73,8 @@ public class InstitutionsListener {
                     siteLocale.getDisplayLanguage());
             throw new InstitutionLocaleInvalidException(institution, siteLocale);
         }
+
+        ack.acknowledge();
 
         double foundFacultyList = facultyFinder.foundFacultyList(page);
         if (foundFacultyList < 1.4) { // Some institutions may already have the faculty page identified
